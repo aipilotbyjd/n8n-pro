@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +35,11 @@ type E2ETestSuite struct {
 	authToken  string
 	testUserID string
 	testTeamID string
+
+	// In-memory stores for mock API
+	workflows  map[string]map[string]interface{}
+	executions map[string]map[string]interface{}
+	mu         sync.Mutex
 }
 
 // SetupSuite sets up the test suite
@@ -72,6 +79,10 @@ func (suite *E2ETestSuite) SetupSuite() {
 	suite.testUserID = "test-user-123"
 	suite.testTeamID = "test-team-456"
 	suite.authToken = "test-auth-token"
+
+	// Initialize in-memory stores
+	suite.workflows = make(map[string]map[string]interface{})
+	suite.executions = make(map[string]map[string]interface{})
 
 	suite.logger.Info("E2E test suite setup completed", "base_url", suite.baseURL)
 }
@@ -313,7 +324,7 @@ func (suite *E2ETestSuite) TestWorkflowExecution() {
 
 	// Get execution details
 	execution := suite.getExecution(token, executionID)
-	assert.Equal(suite.T(), executionID, execution["id"])
+	assert.Equal(suite.T(), executionID, execution["execution_id"])
 	assert.Equal(suite.T(), workflowID, execution["workflow_id"])
 
 	// List executions
@@ -497,7 +508,7 @@ func (suite *E2ETestSuite) listExecutions(token string) []interface{} {
 }
 
 func (suite *E2ETestSuite) makeRequest(method, path, token string, body []byte) *http.Response {
-	var reqBody *bytes.Buffer
+	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewBuffer(body)
 	}
@@ -549,9 +560,17 @@ func (suite *E2ETestSuite) authMiddleware(next http.Handler) http.Handler {
 }
 
 func (suite *E2ETestSuite) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
+	suite.mu.Lock()
+	defer suite.mu.Unlock()
+
+	workflows := make([]map[string]interface{}, 0, len(suite.workflows))
+	for _, workflow := range suite.workflows {
+		workflows = append(workflows, workflow)
+	}
+
 	response := map[string]interface{}{
-		"workflows": []interface{}{},
-		"total":     0,
+		"workflows": workflows,
+		"total":     len(workflows),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -559,13 +578,25 @@ func (suite *E2ETestSuite) handleListWorkflows(w http.ResponseWriter, r *http.Re
 
 func (suite *E2ETestSuite) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var workflowData map[string]interface{}
-	json.NewDecoder(r.Body).Decode(&workflowData)
+	if err := json.NewDecoder(r.Body).Decode(&workflowData); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	workflowID := "workflow-" + generateID()
+	workflowData["id"] = workflowID
+	workflowData["created_at"] = time.Now().Format(time.RFC3339)
+	workflowData["updated_at"] = time.Now().Format(time.RFC3339)
+
+	suite.mu.Lock()
+	suite.workflows[workflowID] = workflowData
+	suite.mu.Unlock()
 
 	response := map[string]interface{}{
-		"id":         "workflow-" + generateID(),
+		"id":         workflowID,
 		"name":       workflowData["name"],
-		"created_at": time.Now().Format(time.RFC3339),
-		"updated_at": time.Now().Format(time.RFC3339),
+		"created_at": workflowData["created_at"],
+		"updated_at": workflowData["updated_at"],
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -575,12 +606,18 @@ func (suite *E2ETestSuite) handleCreateWorkflow(w http.ResponseWriter, r *http.R
 
 func (suite *E2ETestSuite) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	response := map[string]interface{}{
-		"id":   id,
-		"name": "Test Workflow",
+
+	suite.mu.Lock()
+	workflow, exists := suite.workflows[id]
+	suite.mu.Unlock()
+
+	if !exists {
+		http.Error(w, "Workflow not found", http.StatusNotFound)
+		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(workflow)
 }
 
 func (suite *E2ETestSuite) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -588,24 +625,53 @@ func (suite *E2ETestSuite) handleUpdateWorkflow(w http.ResponseWriter, r *http.R
 	var updateData map[string]interface{}
 	json.NewDecoder(r.Body).Decode(&updateData)
 
-	response := map[string]interface{}{
-		"id":         id,
-		"name":       updateData["name"],
-		"updated_at": time.Now().Format(time.RFC3339),
+	suite.mu.Lock()
+	workflow, exists := suite.workflows[id]
+	if !exists {
+		suite.mu.Unlock()
+		http.Error(w, "Workflow not found", http.StatusNotFound)
+		return
 	}
 
+	for k, v := range updateData {
+		workflow[k] = v
+	}
+	workflow["updated_at"] = time.Now().Format(time.RFC3339)
+	suite.workflows[id] = workflow
+	suite.mu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(workflow)
 }
 
 func (suite *E2ETestSuite) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	suite.mu.Lock()
+	delete(suite.workflows, id)
+	suite.mu.Unlock()
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (suite *E2ETestSuite) handleExecuteWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
+	executionID := "execution-" + generateID()
+
+	execution := map[string]interface{}{
+		"execution_id": executionID,
+		"workflow_id":  workflowID,
+		"status":       "completed", // Mock as completed for simplicity
+		"started_at":   time.Now().Format(time.RFC3339),
+		"finished_at":  time.Now().Format(time.RFC3339),
+	}
+
+	suite.mu.Lock()
+	suite.executions[executionID] = execution
+	suite.mu.Unlock()
+
 	response := map[string]interface{}{
-		"execution_id": "execution-" + generateID(),
+		"execution_id": executionID,
 		"workflow_id":  workflowID,
 		"status":       "running",
 		"started_at":   time.Now().Format(time.RFC3339),
@@ -617,9 +683,17 @@ func (suite *E2ETestSuite) handleExecuteWorkflow(w http.ResponseWriter, r *http.
 }
 
 func (suite *E2ETestSuite) handleListExecutions(w http.ResponseWriter, r *http.Request) {
+	suite.mu.Lock()
+	defer suite.mu.Unlock()
+
+	executions := make([]map[string]interface{}, 0, len(suite.executions))
+	for _, execution := range suite.executions {
+		executions = append(executions, execution)
+	}
+
 	response := map[string]interface{}{
-		"executions": []interface{}{},
-		"total":      0,
+		"executions": executions,
+		"total":      len(executions),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -627,13 +701,18 @@ func (suite *E2ETestSuite) handleListExecutions(w http.ResponseWriter, r *http.R
 
 func (suite *E2ETestSuite) handleGetExecution(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	response := map[string]interface{}{
-		"id":          id,
-		"workflow_id": "workflow-123",
-		"status":      "completed",
+
+	suite.mu.Lock()
+	execution, exists := suite.executions[id]
+	suite.mu.Unlock()
+
+	if !exists {
+		http.Error(w, "Execution not found", http.StatusNotFound)
+		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(execution)
 }
 
 func (suite *E2ETestSuite) handleCancelExecution(w http.ResponseWriter, r *http.Request) {
