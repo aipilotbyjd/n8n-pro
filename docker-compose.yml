@@ -53,8 +53,11 @@ services:
     build:
       context: .
       dockerfile: deployments/docker/Dockerfile.worker
+    ports:
+      - "8082:8082"
     depends_on:
       - kafka
+      - postgres
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -64,6 +67,7 @@ services:
       - DB_SSL_MODE=disable
       - KAFKA_BROKERS=kafka:9092
       - WORKER_ENABLED=true
+      - WORKER_HEALTH_CHECK_PORT=8082
 
   scheduler:
     build:
