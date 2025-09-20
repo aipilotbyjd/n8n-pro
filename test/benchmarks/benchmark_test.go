@@ -95,13 +95,10 @@ func generateExecutionData(size int) map[string]interface{} {
 
 // HTTP API Benchmarks
 
-func BenchmarkHealthEndpoint(b *testing.B) {
-	server := createBenchmarkServer()
-	defer server.Close()
-
+func BenchmarkHealthEndpoint(b *testing.B, baseURL string) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := http.Get(server.URL + "/health")
+		resp, err := http.Get(baseURL + "/health")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -109,14 +106,11 @@ func BenchmarkHealthEndpoint(b *testing.B) {
 	}
 }
 
-func BenchmarkHealthEndpointParallel(b *testing.B) {
-	server := createBenchmarkServer()
-	defer server.Close()
-
+func BenchmarkHealthEndpointParallel(b *testing.B, baseURL string) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			resp, err := http.Get(server.URL + "/health")
+			resp, err := http.Get(baseURL + "/health")
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -125,17 +119,14 @@ func BenchmarkHealthEndpointParallel(b *testing.B) {
 	})
 }
 
-func BenchmarkWorkflowCreation(b *testing.B) {
-	server := createBenchmarkServer()
-	defer server.Close()
-
+func BenchmarkWorkflowCreation(b *testing.B, baseURL string) {
 	workflowData := generateWorkflowData(smallDataSize)
 	jsonData, _ := json.Marshal(workflowData)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		resp, err := http.Post(
-			server.URL+"/api/v1/workflows",
+			baseURL+"/api/v1/workflows",
 			"application/json",
 			bytes.NewBuffer(jsonData),
 		)
@@ -146,10 +137,7 @@ func BenchmarkWorkflowCreation(b *testing.B) {
 	}
 }
 
-func BenchmarkWorkflowCreationSizes(b *testing.B) {
-	server := createBenchmarkServer()
-	defer server.Close()
-
+func BenchmarkWorkflowCreationSizes(b *testing.B, baseURL string) {
 	sizes := []int{10, 50, 100, 500, 1000}
 
 	for _, size := range sizes {
@@ -160,7 +148,7 @@ func BenchmarkWorkflowCreationSizes(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				resp, err := http.Post(
-					server.URL+"/api/v1/workflows",
+					baseURL+"/api/v1/workflows",
 					"application/json",
 					bytes.NewBuffer(jsonData),
 				)
@@ -262,7 +250,7 @@ func BenchmarkDAGExecutionParallel(b *testing.B) {
 
 // Node Execution Benchmarks
 
-func BenchmarkHTTPNodeExecution(b *testing.B) {
+func BenchmarkHTTPNodeExecution(b *testing.B, baseURL string) {
 	log := logger.New("benchmark")
 	nodesHttpNode := nodes_http.New(log)
 
@@ -274,7 +262,7 @@ func BenchmarkHTTPNodeExecution(b *testing.B) {
 	defer mockServer.Close()
 
 	parameters := map[string]interface{}{
-		"url":    mockServer.URL,
+		"url":    baseURL,
 		"method": "GET",
 	}
 
@@ -287,7 +275,7 @@ func BenchmarkHTTPNodeExecution(b *testing.B) {
 	}
 }
 
-func BenchmarkHTTPNodeExecutionParallel(b *testing.B) {
+func BenchmarkHTTPNodeExecutionParallel(b *testing.B, baseURL string) {
 	log := logger.New("benchmark")
 
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +285,7 @@ func BenchmarkHTTPNodeExecutionParallel(b *testing.B) {
 	defer mockServer.Close()
 
 	parameters := map[string]interface{}{
-		"url":    mockServer.URL,
+		"url":    baseURL,
 		"method": "GET",
 	}
 
@@ -428,10 +416,7 @@ func BenchmarkJSONUnmarshaling(b *testing.B) {
 
 // Concurrent Operations Benchmarks
 
-func BenchmarkConcurrentWorkflowOperations(b *testing.B) {
-	server := createBenchmarkServer()
-	defer server.Close()
-
+func BenchmarkConcurrentWorkflowOperations(b *testing.B, baseURL string) {
 	workflowData := generateWorkflowData(smallDataSize)
 	jsonData, _ := json.Marshal(workflowData)
 
@@ -440,7 +425,7 @@ func BenchmarkConcurrentWorkflowOperations(b *testing.B) {
 		for pb.Next() {
 			// Create workflow
 			resp, err := http.Post(
-				server.URL+"/api/v1/workflows",
+				baseURL+"/api/v1/workflows",
 				"application/json",
 				bytes.NewBuffer(jsonData),
 			)
@@ -554,11 +539,24 @@ func BenchmarkSuite(b *testing.B) {
 	}
 	metrics.Initialize(config.Metrics)
 
+	// Create a single HTTP test server for all API benchmarks
+	server := createBenchmarkServer()
+	defer server.Close()
+
 	// Run sub-benchmarks
 	b.Run("API", func(b *testing.B) {
-		b.Run("Health", BenchmarkHealthEndpoint)
-		b.Run("HealthParallel", BenchmarkHealthEndpointParallel)
-		b.Run("WorkflowCreation", BenchmarkWorkflowCreation)
+		b.Run("Health", func(b *testing.B) {
+			BenchmarkHealthEndpoint(b, server.URL)
+		})
+		b.Run("HealthParallel", func(b *testing.B) {
+			BenchmarkHealthEndpointParallel(b, server.URL)
+		})
+		b.Run("WorkflowCreation", func(b *testing.B) {
+			BenchmarkWorkflowCreation(b, server.URL)
+		})
+		b.Run("WorkflowCreationSizes", func(b *testing.B) {
+			BenchmarkWorkflowCreationSizes(b, server.URL)
+		})
 	})
 
 	b.Run("DAG", func(b *testing.B) {
