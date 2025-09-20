@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"n8n-pro/pkg/errors"
@@ -197,10 +198,7 @@ func (s *Store) List(ctx context.Context, filter *CredentialFilter) ([]*Credenti
 
 	whereClause := ""
 	if len(conditions) > 0 {
-		whereClause = "WHERE " + fmt.Sprintf("%s", conditions[0])
-		for i := 1; i < len(conditions); i++ {
-			whereClause += " AND " + conditions[i]
-		}
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	// Count total

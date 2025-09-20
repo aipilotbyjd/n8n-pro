@@ -415,6 +415,8 @@ func (m *Manager) TestCredential(ctx context.Context, credentialID, userID, team
 
 // Helper methods
 
+// Helper methods
+
 func (m *Manager) encrypt(data *CredentialData) (string, error) {
 	// Convert to JSON
 	jsonData, err := json.Marshal(data)
