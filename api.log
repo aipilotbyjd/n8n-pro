@@ -10,3 +10,20 @@
 {"time":"2025-09-20T22:52:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
 {"time":"2025-09-20T22:53:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
 {"time":"2025-09-20T22:53:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+{"time":"2025-09-20T22:54:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+{"time":"2025-09-20T22:54:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+{"time":"2025-09-20T22:55:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+{"time":"2025-09-20T22:55:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+{"time":"2025-09-20T22:56:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16418166}
+2025/09/20 22:56:16 [Jaydeeps-MacBook-Air.local/eSNB5dzImI-000003] "GET http://localhost:8080/health HTTP/1.1" from [::1]:55679 - 200 71B in 34.458µs
+2025/09/20 22:56:24 [Jaydeeps-MacBook-Air.local/eSNB5dzImI-000004] "GET http://localhost:8080/health HTTP/1.1" from [::1]:55680 - 200 71B in 38.875µs
+{"time":"2025-09-20T22:56:24+05:30","level":"INFO","msg":"Listed workflows","service":"workflow-service","count":0,"total":0,"filter":{"limit":50,"offset":0,"sort_by":"","sort_order":""}}
+2025/09/20 22:56:24 [Jaydeeps-MacBook-Air.local/eSNB5dzImI-000005] "GET http://localhost:8080/api/v1/workflows HTTP/1.1" from [::1]:55681 - 200 25B in 21.2265ms
+{"time":"2025-09-20T22:56:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16419959}
+{"time":"2025-09-20T22:57:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16419959}
+{"time":"2025-09-20T22:57:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16419959}
+{"time":"2025-09-20T22:58:08+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16419959}
+{"time":"2025-09-20T22:58:38+05:30","level":"WARN","msg":"Connection pool wait detected","service":"postgres","wait_count":1,"wait_duration":16419959}
+{"time":"2025-09-20T22:58:55+05:30","level":"INFO","msg":"Shutting down server...","service":"api"}
+{"time":"2025-09-20T22:58:55+05:30","level":"INFO","msg":"Server exited","service":"api"}
+{"time":"2025-09-20T22:58:55+05:30","level":"INFO","msg":"Database connection closed","service":"postgres"}
