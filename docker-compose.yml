@@ -36,8 +36,18 @@ services:
       - postgres
       - kafka
     environment:
-      - DATABASE_URL=postgres://user:password@postgres:5432/n8n_clone?sslmode=disable
-      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=n8n_clone
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_SSL_MODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - METRICS_ENABLED=true
+      - METRICS_HOST=0.0.0.0
+      - METRICS_PORT=9090
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
 
   worker:
     build:
@@ -46,7 +56,14 @@ services:
     depends_on:
       - kafka
     environment:
-      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=n8n_clone
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_SSL_MODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - WORKER_ENABLED=true
 
 volumes:
   postgres_data:
