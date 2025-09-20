@@ -200,7 +200,7 @@ func (e *SlackExecutor) GetDefinition() *nodes.NodeDefinition {
 		DisplayName: "Slack",
 		Description: "Send messages and interact with Slack",
 		Version:     "2.0.0",
-		Type:        nodes.NodeTypeIntegration,
+		Type:        nodes.NodeTypeAction,
 		Category:    nodes.CategoryCommunication,
 		Status:      nodes.NodeStatusStable,
 		Icon:        "file:slack.svg",

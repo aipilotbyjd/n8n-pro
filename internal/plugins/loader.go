@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"plugin"
 	"strings"
 	"sync"
 	"time"
@@ -670,7 +671,7 @@ func (l *Loader) loadPluginInstance(plugin *Plugin) error {
 	return errors.NewValidationError("unsupported plugin type")
 }
 
-func (l *Loader) loadGoPlugin(plugin *Plugin, path string) error {
+func (l *Loader) loadGoPlugin(goPlugin *Plugin, path string) error {
 	// Load Go plugin
 	p, err := plugin.Open(path)
 	if err != nil {
@@ -689,7 +690,7 @@ func (l *Loader) loadGoPlugin(plugin *Plugin, path string) error {
 		return fmt.Errorf("invalid New function signature")
 	}
 
-	plugin.Instance = newPluginFunc()
+	goPlugin.Instance = newPluginFunc()
 	return nil
 }
 

@@ -114,7 +114,7 @@ func (e *GSheetsExecutor) GetDefinition() *nodes.NodeDefinition {
 		DisplayName: "Google Sheets",
 		Description: "Read and write data to Google Sheets",
 		Version:     "2.0.0",
-		Type:        nodes.NodeTypeIntegration,
+		Type:        nodes.NodeTypeAction,
 		Category:    nodes.CategoryIntegration,
 		Status:      nodes.NodeStatusStable,
 		Icon:        "file:googlesheets.svg",

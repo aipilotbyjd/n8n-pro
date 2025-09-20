@@ -151,25 +151,25 @@ func (s *Sandbox) Execute(ctx context.Context, code string, inputs map[string]in
 	}
 
 	// Create execution environment
-	execCtx, err := s.createExecutionContext(ctx, code, inputs)
+	sandboxExecCtx, err := s.createExecutionContext(ctx, code, inputs)
 	if err != nil {
 		return nil, err
 	}
-	defer s.cleanupExecutionContext(execCtx)
+	defer s.cleanupExecutionContext(sandboxExecCtx)
 
 	// Execute based on context type
 	var result *ExecutionResult
 	switch s.config.Context {
 	case ContextJavaScript:
-		result, err = s.executeJavaScript(execCtx, code, inputs)
+		result, err = s.executeJavaScript(sandboxExecCtx, code, inputs)
 	case ContextPython:
-		result, err = s.executePython(execCtx, code, inputs)
+		result, err = s.executePython(sandboxExecCtx, code, inputs)
 	case ContextShell:
-		result, err = s.executeShell(execCtx, code, inputs)
+		result, err = s.executeShell(sandboxExecCtx, code, inputs)
 	case ContextDocker:
-		result, err = s.executeDocker(execCtx, code, inputs)
+		result, err = s.executeDocker(sandboxExecCtx, code, inputs)
 	case ContextWASM:
-		result, err = s.executeWASM(execCtx, code, inputs)
+		result, err = s.executeWASM(sandboxExecCtx, code, inputs)
 	default:
 		return nil, errors.New(errors.ErrorTypeValidation, errors.CodeInvalidInput,
 			fmt.Sprintf("unsupported execution context: %s", s.config.Context))
@@ -207,12 +207,11 @@ func (s *Sandbox) validateInputs(code string, inputs map[string]interface{}) err
 }
 
 // ExecutionContext holds context for a single execution
-type ExecutionContext struct {
+type SandboxExecutionContext struct {
 	ID         string
 	WorkDir    string
 	ScriptPath string
-	InputPath  string
-	OutputPath string
+	InputPath  string	OutputPath string
 	LogPath    string
 	Cancel     context.CancelFunc
 	Cmd        *exec.Cmd
@@ -220,7 +219,7 @@ type ExecutionContext struct {
 }
 
 // createExecutionContext sets up the execution environment
-func (s *Sandbox) createExecutionContext(ctx context.Context, code string, inputs map[string]interface{}) (*ExecutionContext, error) {
+func (s *Sandbox) createExecutionContext(ctx context.Context, code string, inputs map[string]interface{}) (*SandboxExecutionContext, error) {
 	id := fmt.Sprintf("exec_%d", time.Now().UnixNano())
 	execDir := filepath.Join(s.workDir, id)
 
@@ -232,7 +231,7 @@ func (s *Sandbox) createExecutionContext(ctx context.Context, code string, input
 	// Create execution context with timeout
 	execCtx, cancel := context.WithTimeout(ctx, s.config.ResourceLimits.MaxWallTime)
 
-	context := &ExecutionContext{
+	sandboxExecCtx := &SandboxExecutionContext{
 		ID:         id,
 		WorkDir:    execDir,
 		ScriptPath: filepath.Join(execDir, "script"),
@@ -252,18 +251,18 @@ func (s *Sandbox) createExecutionContext(ctx context.Context, code string, input
 				"failed to marshal input data")
 		}
 
-		if err := os.WriteFile(context.InputPath, inputData, 0644); err != nil {
+		if err := os.WriteFile(sandboxExecCtx.InputPath, inputData, 0644); err != nil {
 			cancel()
 			return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
 				"failed to write input data")
 		}
 	}
 
-	return context, nil
+	return sandboxExecCtx, nil
 }
 
 // cleanupExecutionContext cleans up the execution environment
-func (s *Sandbox) cleanupExecutionContext(ctx *ExecutionContext) {
+func (s *Sandbox) cleanupExecutionContext(ctx *SandboxExecutionContext) {
 	if ctx == nil {
 		return
 	}
@@ -280,7 +279,7 @@ func (s *Sandbox) cleanupExecutionContext(ctx *ExecutionContext) {
 }
 
 // executeJavaScript runs JavaScript code in a sandboxed Node.js environment
-func (s *Sandbox) executeJavaScript(ctx *ExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
+func (s *Sandbox) executeJavaScript(ctx *SandboxExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
 	// Wrap the user code with sandbox utilities
 	wrappedCode := s.wrapJavaScriptCode(code, ctx.InputPath, ctx.OutputPath)
 
@@ -348,7 +347,7 @@ process.on('exit', () => {
 }
 
 // executePython runs Python code in a sandboxed environment
-func (s *Sandbox) executePython(ctx *ExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
+func (s *Sandbox) executePython(ctx *SandboxExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
 	wrappedCode := s.wrapPythonCode(code, ctx.InputPath, ctx.OutputPath)
 
 	scriptFile := ctx.ScriptPath + ".py"
@@ -417,7 +416,7 @@ sandbox.save_outputs()
 }
 
 // executeShell runs shell commands in a restricted environment
-func (s *Sandbox) executeShell(ctx *ExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
+func (s *Sandbox) executeShell(ctx *SandboxExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
 	scriptFile := ctx.ScriptPath + ".sh"
 	if err := os.WriteFile(scriptFile, []byte(code), 0755); err != nil {
 		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
@@ -435,7 +434,7 @@ func (s *Sandbox) executeShell(ctx *ExecutionContext, code string, inputs map[st
 }
 
 // executeDocker runs code in a Docker container
-func (s *Sandbox) executeDocker(ctx *ExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
+func (s *Sandbox) executeDocker(ctx *SandboxExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
 	// Create Dockerfile and script
 	dockerfile := `FROM node:alpine
 WORKDIR /app
@@ -481,13 +480,13 @@ CMD ["node", "script.js"]`
 }
 
 // executeWASM runs WebAssembly code (placeholder implementation)
-func (s *Sandbox) executeWASM(ctx *ExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
+func (s *Sandbox) executeWASM(ctx *SandboxExecutionContext, code string, inputs map[string]interface{}) (*ExecutionResult, error) {
 	return nil, errors.New(errors.ErrorTypeConfiguration, errors.CodeInvalidInput,
 		"WASM execution not implemented")
 }
 
 // runCommand executes a command and captures the result
-func (s *Sandbox) runCommand(ctx *ExecutionContext, cmd *exec.Cmd) (*ExecutionResult, error) {
+func (s *Sandbox) runCommand(ctx *SandboxExecutionContext, cmd *exec.Cmd) (*ExecutionResult, error) {
 	result := &ExecutionResult{
 		Success: false,
 	}

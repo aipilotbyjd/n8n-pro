@@ -14,7 +14,7 @@ import (
 
 	"n8n-pro/internal/config"
 	"n8n-pro/internal/execution/dag"
-	"n8n-pro/internal/nodes/http"
+	nodes_http "n8n-pro/internal/nodes/http"
 	"n8n-pro/internal/storage/cache"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
@@ -264,7 +264,7 @@ func BenchmarkDAGExecutionParallel(b *testing.B) {
 
 func BenchmarkHTTPNodeExecution(b *testing.B) {
 	log := logger.New("benchmark")
-	httpNode := http.New(log)
+	nodesHttpNode := nodes_http.New(log)
 
 	// Mock HTTP server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +280,7 @@ func BenchmarkHTTPNodeExecution(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := httpNode.Execute(context.Background(), parameters, nil)
+		_, err := nodesHttpNode.Execute(context.Background(), parameters, nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -303,9 +303,9 @@ func BenchmarkHTTPNodeExecutionParallel(b *testing.B) {
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		httpNode := http.New(log)
+		nodesHttpNode := nodes_http.New(log)
 		for pb.Next() {
-			_, err := httpNode.Execute(context.Background(), parameters, nil)
+			_, err := nodesHttpNode.Execute(context.Background(), parameters, nil)
 			if err != nil {
 				b.Fatal(err)
 			}

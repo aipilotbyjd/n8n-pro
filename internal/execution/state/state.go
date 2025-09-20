@@ -426,13 +426,13 @@ func (s *ExecutionState) UpdateStatus(status ExecutionStatus) error {
 			now := time.Now()
 			s.EndTime = &now
 			s.Duration = now.Sub(s.StartTime)
+			if status == ExecutionStatusCanceled {
+				s.CanceledAt = &now
+			}
 		}
 	case ExecutionStatusPaused:
 		now := time.Now()
 		s.PausedAt = &now
-	case ExecutionStatusCanceled:
-		now := time.Now()
-		s.CanceledAt = &now
 	}
 
 	// Publish event
