@@ -42,26 +42,26 @@ func (suite *E2ETestSuite) SetupSuite() {
 
 	// Load test configuration
 	suite.config = &config.Config{
-		API: config.APIConfig{
+		API: &config.APIConfig{
 			Host:        "localhost",
 			Port:        0, // Use random port
 			ReadTimeout: 30 * time.Second,
 			EnableCORS:  true,
 		},
-		Database: config.DatabaseConfig{
+		Database: &config.DatabaseConfig{
 			Host:     "localhost",
 			Port:     5432,
 			Database: "n8n_test",
 			Username: getEnvOrDefault("TEST_DB_USER", "postgres"),
 			Password: getEnvOrDefault("TEST_DB_PASSWORD", "password"),
 		},
-		Metrics: config.MetricsConfig{
+		Metrics: &config.MetricsConfig{
 			Enabled: false,
 		},
 	}
 
 	// Initialize metrics
-	metrics.Initialize(&suite.config.Metrics)
+	metrics.Initialize(suite.config.Metrics)
 
 	// Create test server
 	suite.server = suite.createTestServer()

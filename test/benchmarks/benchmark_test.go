@@ -548,11 +548,11 @@ func (m *mockNodeExecutor) GetType() string {
 func BenchmarkSuite(b *testing.B) {
 	// Initialize metrics for benchmarking
 	config := &config.Config{
-		Metrics: config.MetricsConfig{
+		Metrics: &config.MetricsConfig{
 			Enabled: false, // Disable metrics during benchmarking
 		},
 	}
-	metrics.Initialize(&config.Metrics)
+	metrics.Initialize(config.Metrics)
 
 	// Run sub-benchmarks
 	b.Run("API", func(b *testing.B) {

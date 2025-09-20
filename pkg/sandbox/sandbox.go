@@ -211,7 +211,8 @@ type SandboxExecutionContext struct {
 	ID         string
 	WorkDir    string
 	ScriptPath string
-	InputPath  string	OutputPath string
+	InputPath  string
+	OutputPath string
 	LogPath    string
 	Cancel     context.CancelFunc
 	Cmd        *exec.Cmd
@@ -229,7 +230,7 @@ func (s *Sandbox) createExecutionContext(ctx context.Context, code string, input
 	}
 
 	// Create execution context with timeout
-	execCtx, cancel := context.WithTimeout(ctx, s.config.ResourceLimits.MaxWallTime)
+	_, cancel := context.WithTimeout(ctx, s.config.ResourceLimits.MaxWallTime)
 
 	sandboxExecCtx := &SandboxExecutionContext{
 		ID:         id,
@@ -522,7 +523,6 @@ func (s *Sandbox) runCommand(ctx *SandboxExecutionContext, cmd *exec.Cmd) (*Exec
 
 // applyResourceLimits applies resource constraints to the command
 func (s *Sandbox) applyResourceLimits(cmd *exec.Cmd) {
-	limits := s.config.ResourceLimits
 
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}

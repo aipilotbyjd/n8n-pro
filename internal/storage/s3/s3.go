@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -136,16 +137,14 @@ func New(config *Config, log logger.Logger) (*Client, error) {
 	}
 
 	// Create AWS session
-	awsConfig := &aws.Config{
-		Region:                        aws.String(config.Region),
-		S3ForcePathStyle:              aws.Bool(config.S3ForcePathStyle || config.PathStyle),
-		S3UseAccelerateEndpoint:       aws.Bool(config.S3UseAccelerateEndpoint),
-		S3DisableContentMD5Validation: aws.Bool(config.S3DisableContentMD5Check),
-		DisableComputeChecksums:       aws.Bool(config.DisableComputeChecksums),
-		DisableSSL:                    aws.Bool(config.DisableSSL),
-		MaxRetries:                    aws.Int(config.MaxRetries),
-	}
-
+			awsConfig := &aws.Config{
+			Region:                        aws.String(config.Region),
+			S3ForcePathStyle:              aws.Bool(config.S3ForcePathStyle || config.PathStyle),
+			S3DisableContentMD5Validation: aws.Bool(config.S3DisableContentMD5Check),
+			DisableComputeChecksums:       aws.Bool(config.DisableComputeChecksums),
+			DisableSSL:                    aws.Bool(config.DisableSSL),
+			MaxRetries:                    aws.Int(config.MaxRetries),
+		}
 	// Set custom endpoint if provided
 	if config.Endpoint != "" {
 		awsConfig.Endpoint = aws.String(config.Endpoint)
@@ -578,39 +577,35 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, options *
 
 	key = c.buildKey(key)
 
-	var req *s3.GetObjectInput
-	var operation string
+	var presignRequest *request.Request
 
 	switch strings.ToUpper(options.Method) {
 	case "GET":
-		req = &s3.GetObjectInput{
+		req := &s3.GetObjectInput{
 			Bucket: aws.String(c.config.Bucket),
 			Key:    aws.String(key),
 		}
 		if options.VersionID != "" {
 			req.VersionId = aws.String(options.VersionID)
 		}
-		operation = "GetObject"
+		presignRequest, _ = c.s3Client.GetObjectRequest(req)
 	case "PUT":
-		putReq := &s3.PutObjectInput{
+		req := &s3.PutObjectInput{
 			Bucket: aws.String(c.config.Bucket),
 			Key:    aws.String(key),
 		}
-		req = putReq
-		operation = "PutObject"
+		presignRequest, _ = c.s3Client.PutObjectRequest(req)
 	case "DELETE":
-		deleteReq := &s3.DeleteObjectInput{
+		req := &s3.DeleteObjectInput{
 			Bucket: aws.String(c.config.Bucket),
 			Key:    aws.String(key),
 		}
-		req = deleteReq
-		operation = "DeleteObject"
+		presignRequest, _ = c.s3Client.DeleteObjectRequest(req)
 	default:
 		return "", errors.NewValidationError(fmt.Sprintf("unsupported method: %s", options.Method))
 	}
 
-	presignReq, _ := c.s3Client.GetObjectRequest(req.(*s3.GetObjectInput))
-	url, err := presignReq.Presign(options.Expires)
+	url, err := presignRequest.Presign(options.Expires)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
 	}
@@ -660,7 +655,7 @@ func (c *Client) handleS3Error(err error) error {
 		case "SignatureDoesNotMatch":
 			return errors.NewUnauthorizedError("Invalid S3 secret key")
 		case "RequestTimeout":
-			return errors.NewTimeoutError("S3 request timeout")
+			return errors.TimeoutError("S3 request timeout")
 		default:
 			return errors.NewExecutionError(fmt.Sprintf("S3 error: %s - %s", aerr.Code(), aerr.Message()))
 		}
