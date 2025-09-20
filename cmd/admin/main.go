@@ -16,6 +16,10 @@ import (
 	"n8n-pro/internal/teams"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 const usage = `
@@ -597,12 +601,56 @@ func (cli *AdminCLI) systemMetrics(ctx context.Context, jsonOutput bool) error {
 
 // Migration command implementations
 func (cli *AdminCLI) migrateUp(ctx context.Context, args []string, jsonOutput bool) error {
-	fmt.Println("Migrate up - not implemented yet")
+	cli.logger.Info("Running database migrations up...")
+
+	// Construct DSN from config
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		cli.cfg.Database.User,
+		cli.cfg.Database.Password,
+		cli.cfg.Database.Host,
+		cli.cfg.Database.Port,
+		cli.cfg.Database.Name,
+	)
+
+	migrationsPath := "file://./internal/storage/migrations"
+
+	m, err := migrate.New(migrationsPath, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations up: %w", err)
+	}
+
+	cli.logger.Info("Database migrations completed successfully.")
 	return nil
 }
 
 func (cli *AdminCLI) migrateDown(ctx context.Context, args []string, jsonOutput bool) error {
-	fmt.Println("Migrate down - not implemented yet")
+	cli.logger.Info("Running database migrations down...")
+
+	// Construct DSN from config
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		cli.cfg.Database.User,
+		cli.cfg.Database.Password,
+		cli.cfg.Database.Host,
+		cli.cfg.Database.Port,
+		cli.cfg.Database.Name,
+	)
+
+	migrationsPath := "file://./internal/storage/migrations"
+
+	m, err := migrate.New(migrationsPath, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations down: %w", err)
+	}
+
+	cli.logger.Info("Database migrations rollback completed successfully.")
 	return nil
 }
 

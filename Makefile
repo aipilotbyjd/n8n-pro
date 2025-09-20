@@ -258,7 +258,7 @@ db-down: ## Stop database
 .PHONY: db-migrate
 db-migrate: $(ADMIN_BINARY) ## Run database migrations
 	@echo "$(GREEN)Running database migrations...$(RESET)"
-	./$(ADMIN_BINARY) migrate up
+	DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) DB_NAME=$(DB_NAME) DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) ./$(ADMIN_BINARY) migrate up
 
 .PHONY: db-migrate-down
 db-migrate-down: $(ADMIN_BINARY) ## Rollback database migrations
