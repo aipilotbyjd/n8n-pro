@@ -469,7 +469,7 @@ func (s *Service) calculateProration(subscription *Subscription, newPlan *Plan) 
 	}
 
 	priceDiff := newPlan.Price - subscription.Plan.Price
-	remainingDays := int64(subscription.CurrentPeriodEnd.Sub(time.Now()).Hours() / 24)
+	remainingDays := int64(time.Until(subscription.CurrentPeriodEnd).Hours() / 24)
 	totalDays := int64(subscription.CurrentPeriodEnd.Sub(subscription.CurrentPeriodStart).Hours() / 24)
 
 	if totalDays == 0 {
