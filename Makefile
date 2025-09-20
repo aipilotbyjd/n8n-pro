@@ -69,8 +69,8 @@ help: ## Show this help message
 # Build Targets
 # =============================================================================
 
-.PHONY: build
-build: build-all ## Build all services
+.PHONY: build-services
+build-services: build-all ## Build all services
 
 .PHONY: build-all
 build-all: $(API_BINARY) $(WORKER_BINARY) $(SCHEDULER_BINARY) $(WEBHOOK_BINARY) $(ADMIN_BINARY) ## Build all service binaries

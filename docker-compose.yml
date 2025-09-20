@@ -65,6 +65,44 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - WORKER_ENABLED=true
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: deployments/docker/Dockerfile.scheduler
+    depends_on:
+      - postgres
+      - kafka
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=n8n_clone
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_SSL_MODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - SCHEDULER_ENABLED=true
+
+  webhook:
+    build:
+      context: .
+      dockerfile: deployments/docker/Dockerfile.webhook
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - kafka
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=n8n_clone
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_SSL_MODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - WEBHOOK_ENABLED=true
+      - WEBHOOK_HOST=0.0.0.0
+      - WEBHOOK_PORT=8081
+
 volumes:
   postgres_data:
   kafka_data:
