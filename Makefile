@@ -36,7 +36,7 @@ ADMIN_BINARY := $(BUILD_DIR)/admin
 
 # Docker compose files
 COMPOSE_FILE := docker-compose.yml
-COMPOSE_DEV_FILE := docker-compose.dev.yml
+COMPOSE_DEV_FILE := docker-compose.yml
 
 # Database
 DB_NAME := n8n_pro
