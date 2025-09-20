@@ -605,11 +605,11 @@ func (cli *AdminCLI) migrateUp(ctx context.Context, args []string, jsonOutput bo
 
 	// Construct DSN from config
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cli.cfg.Database.User,
+		cli.cfg.Database.Username,
 		cli.cfg.Database.Password,
 		cli.cfg.Database.Host,
 		cli.cfg.Database.Port,
-		cli.cfg.Database.Name,
+		cli.cfg.Database.Database,
 	)
 
 	migrationsPath := "file://./internal/storage/migrations"
@@ -632,11 +632,11 @@ func (cli *AdminCLI) migrateDown(ctx context.Context, args []string, jsonOutput 
 
 	// Construct DSN from config
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cli.cfg.Database.User,
+		cli.cfg.Database.Username,
 		cli.cfg.Database.Password,
 		cli.cfg.Database.Host,
 		cli.cfg.Database.Port,
-		cli.cfg.Database.Name,
+		cli.cfg.Database.Database,
 	)
 
 	migrationsPath := "file://./internal/storage/migrations"
