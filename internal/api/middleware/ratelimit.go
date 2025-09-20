@@ -101,10 +101,10 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 				)
 
 				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Retry-After", strconv.Itoa(int(resetTime.Sub(time.Now()).Seconds())))
+				w.Header().Set("Retry-After", strconv.Itoa(int(time.Until(resetTime).Seconds())))
 				w.WriteHeader(http.StatusTooManyRequests)
 				w.Write([]byte(`{"error": "Rate limit exceeded", "retry_after": "` +
-					strconv.Itoa(int(resetTime.Sub(time.Now()).Seconds())) + `s"}`))
+					strconv.Itoa(int(time.Until(resetTime).Seconds())) + `s"}`))
 				return
 			}
 
