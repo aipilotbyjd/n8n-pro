@@ -148,11 +148,8 @@ func (db *DB) buildPoolConfig() (*pgxpool.Config, error) {
 
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		db.logger.Debug("Database connection established")
-		db.metrics.UpdateDBStats(
-			int(db.pool.Stat().TotalConns()),
-			int(db.pool.Stat().IdleConns()),
-			int(db.pool.Stat().AcquiredConns()),
-		)
+		// Note: db.pool is nil during initial connection setup, so we skip metrics here
+		// Metrics will be updated by the monitoring goroutine once pool is established
 		return nil
 	}
 
