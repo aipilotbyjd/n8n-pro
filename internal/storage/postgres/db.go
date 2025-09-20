@@ -137,14 +137,12 @@ func (db *DB) buildPoolConfig() (*pgxpool.Config, error) {
 	config.ConnConfig.ConnectTimeout = db.config.ConnectionTimeout
 
 	// Add connection hooks for logging and metrics
-	config.BeforeAcquire = func(ctx context.Context, c *pgx.Conn) bool {
-		db.logger.Debug("Acquiring database connection")
-		return true
-	}
-
-	config.AfterRelease = func(c *pgx.Conn) bool {
-		db.logger.Debug("Releasing database connection")
-		return true
+	config.BeforeConnect = func(ctx context.Context, config *pgx.ConnConfig) error {
+		db.logger.Debug("Establishing new database connection",
+			"host", config.Host,
+			"database", config.Database,
+		)
+		return nil
 	}
 
 	config.BeforeClose = func(conn *pgx.Conn) {
