@@ -362,7 +362,7 @@ func (suite *E2ETestSuite) TestConcurrentOperations() {
 	for i := 0; i < numRoutines; i++ {
 		go func(index int) {
 			data := workflowData
-			data.(map[string]interface{})["name"] = fmt.Sprintf("Concurrent Test Workflow %d", index)
+			data["name"] = fmt.Sprintf("Concurrent Test Workflow %d", index)
 			workflowID := suite.createWorkflow(token, data)
 			workflowIDs <- workflowID
 		}(i)
