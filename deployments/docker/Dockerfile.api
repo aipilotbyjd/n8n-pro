@@ -8,7 +8,10 @@ RUN go mod download
 COPY . .
 
 RUN go build -o ./bin/api ./cmd/api
+RUN go build -o ./bin/admin ./cmd/admin
 
-EXPOSE 8080
+COPY deployments/docker/entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-CMD [ "./bin/api" ]
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["./bin/api"]

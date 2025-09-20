@@ -48,11 +48,6 @@ services:
       - METRICS_PORT=9090
       - API_HOST=0.0.0.0
       - API_PORT=8080
-    command: >
-      sh -c "
-        ./build/admin migrate up &&
-        ./bin/api
-      "
 
   worker:
     build:

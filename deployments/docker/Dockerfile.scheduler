@@ -8,5 +8,10 @@ RUN go mod download
 COPY . .
 
 RUN go build -o ./bin/scheduler ./cmd/scheduler
+RUN go build -o ./bin/admin ./cmd/admin
 
-CMD [ "./bin/scheduler" ]
+COPY deployments/docker/entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["./bin/scheduler"]
