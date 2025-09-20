@@ -1,0 +1,704 @@
+package workflows
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"n8n-pro/internal/storage/postgres"
+	"n8n-pro/pkg/errors"
+	"n8n-pro/pkg/logger"
+	"n8n-pro/pkg/metrics"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// PostgresRepository implements the Repository interface using PostgreSQL
+type PostgresRepository struct {
+	db      *postgres.DB
+	logger  logger.Logger
+	metrics *metrics.Metrics
+}
+
+// NewPostgresRepository creates a new PostgreSQL repository
+func NewPostgresRepository(db *postgres.DB) Repository {
+	return &PostgresRepository{
+		db:      db,
+		logger:  logger.New("workflow-repository"),
+		metrics: metrics.GetGlobal(),
+	}
+}
+
+// Create creates a new workflow
+func (r *PostgresRepository) Create(ctx context.Context, workflow *Workflow) error {
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflows (
+			id, name, description, status, team_id, owner_id, version,
+			is_template, template_id, nodes, connections, variables,
+			triggers, config, tags, metadata, execution_count,
+			success_rate, average_runtime, created_at, updated_at,
+			created_by, updated_by
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+		)`
+
+	// Serialize complex fields to JSON
+	nodesJSON, err := json.Marshal(workflow.Nodes)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize nodes")
+	}
+
+	connectionsJSON, err := json.Marshal(workflow.Connections)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize connections")
+	}
+
+	variablesJSON, err := json.Marshal(workflow.Variables)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize variables")
+	}
+
+	triggersJSON, err := json.Marshal(workflow.Triggers)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize triggers")
+	}
+
+	configJSON, err := json.Marshal(workflow.Config)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize config")
+	}
+
+	tagsJSON, err := json.Marshal(workflow.Tags)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize tags")
+	}
+
+	metadataJSON, err := json.Marshal(workflow.Metadata)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize metadata")
+	}
+
+	_, err = r.db.Exec(ctx, query,
+		workflow.ID, workflow.Name, workflow.Description, workflow.Status,
+		workflow.TeamID, workflow.OwnerID, workflow.Version, workflow.IsTemplate,
+		workflow.TemplateID, nodesJSON, connectionsJSON, variablesJSON,
+		triggersJSON, configJSON, tagsJSON, metadataJSON,
+		workflow.ExecutionCount, workflow.SuccessRate, workflow.AverageRuntime,
+		workflow.CreatedAt, workflow.UpdatedAt, workflow.CreatedBy, workflow.UpdatedBy,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflows", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create workflow")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflows", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow created", "workflow_id", workflow.ID)
+	return nil
+}
+
+// GetByID retrieves a workflow by ID
+func (r *PostgresRepository) GetByID(ctx context.Context, id string) (*Workflow, error) {
+	start := time.Now()
+
+	query := `
+		SELECT id, name, description, status, team_id, owner_id, version,
+			   is_template, template_id, nodes, connections, variables,
+			   triggers, config, tags, metadata, execution_count,
+			   last_executed_at, last_execution_id, success_rate, average_runtime,
+			   created_at, updated_at, deleted_at, created_by, updated_by
+		FROM workflows
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	var workflow Workflow
+	var nodesJSON, connectionsJSON, variablesJSON, triggersJSON []byte
+	var configJSON, tagsJSON, metadataJSON []byte
+	var lastExecutedAt pgtype.Timestamptz
+	var templateID, lastExecutionID *string
+	var deletedAt pgtype.Timestamptz
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&workflow.ID, &workflow.Name, &workflow.Description, &workflow.Status,
+		&workflow.TeamID, &workflow.OwnerID, &workflow.Version,
+		&workflow.IsTemplate, &templateID, &nodesJSON, &connectionsJSON,
+		&variablesJSON, &triggersJSON, &configJSON, &tagsJSON, &metadataJSON,
+		&workflow.ExecutionCount, &lastExecutedAt, &lastExecutionID,
+		&workflow.SuccessRate, &workflow.AverageRuntime,
+		&workflow.CreatedAt, &workflow.UpdatedAt, &deletedAt,
+		&workflow.CreatedBy, &workflow.UpdatedBy,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			r.metrics.RecordDBQuery("get", "workflows", "not_found", time.Since(start))
+			return nil, nil
+		}
+		r.metrics.RecordDBQuery("get", "workflows", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow")
+	}
+
+	// Deserialize JSON fields
+	if err := json.Unmarshal(nodesJSON, &workflow.Nodes); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize nodes")
+	}
+
+	if err := json.Unmarshal(connectionsJSON, &workflow.Connections); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize connections")
+	}
+
+	if err := json.Unmarshal(variablesJSON, &workflow.Variables); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize variables")
+	}
+
+	if err := json.Unmarshal(triggersJSON, &workflow.Triggers); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize triggers")
+	}
+
+	if err := json.Unmarshal(configJSON, &workflow.Config); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize config")
+	}
+
+	if err := json.Unmarshal(tagsJSON, &workflow.Tags); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize tags")
+	}
+
+	if err := json.Unmarshal(metadataJSON, &workflow.Metadata); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize metadata")
+	}
+
+	// Handle nullable fields
+	workflow.TemplateID = templateID
+	workflow.LastExecutionID = lastExecutionID
+
+	if lastExecutedAt.Valid {
+		t := lastExecutedAt.Time
+		workflow.LastExecutedAt = &t
+	}
+
+	if deletedAt.Valid {
+		t := deletedAt.Time
+		workflow.DeletedAt = &t
+	}
+
+	r.metrics.RecordDBQuery("get", "workflows", "success", time.Since(start))
+	return &workflow, nil
+}
+
+// GetByIDWithDetails retrieves a workflow by ID with all related data
+func (r *PostgresRepository) GetByIDWithDetails(ctx context.Context, id string) (*Workflow, error) {
+	// For now, this is the same as GetByID
+	// In the future, this could include additional joins for related data
+	return r.GetByID(ctx, id)
+}
+
+// Update updates an existing workflow
+func (r *PostgresRepository) Update(ctx context.Context, workflow *Workflow) error {
+	start := time.Now()
+
+	query := `
+		UPDATE workflows SET
+			name = $2, description = $3, status = $4, version = $5,
+			nodes = $6, connections = $7, variables = $8, triggers = $9,
+			config = $10, tags = $11, metadata = $12, execution_count = $13,
+			last_executed_at = $14, last_execution_id = $15, success_rate = $16,
+			average_runtime = $17, updated_at = $18, updated_by = $19
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	// Serialize complex fields to JSON
+	nodesJSON, err := json.Marshal(workflow.Nodes)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize nodes")
+	}
+
+	connectionsJSON, err := json.Marshal(workflow.Connections)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize connections")
+	}
+
+	variablesJSON, err := json.Marshal(workflow.Variables)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize variables")
+	}
+
+	triggersJSON, err := json.Marshal(workflow.Triggers)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize triggers")
+	}
+
+	configJSON, err := json.Marshal(workflow.Config)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize config")
+	}
+
+	tagsJSON, err := json.Marshal(workflow.Tags)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize tags")
+	}
+
+	metadataJSON, err := json.Marshal(workflow.Metadata)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize metadata")
+	}
+
+	result, err := r.db.Exec(ctx, query,
+		workflow.ID, workflow.Name, workflow.Description, workflow.Status, workflow.Version,
+		nodesJSON, connectionsJSON, variablesJSON, triggersJSON, configJSON,
+		tagsJSON, metadataJSON, workflow.ExecutionCount, workflow.LastExecutedAt,
+		workflow.LastExecutionID, workflow.SuccessRate, workflow.AverageRuntime,
+		workflow.UpdatedAt, workflow.UpdatedBy,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("update", "workflows", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to update workflow")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("workflow")
+	}
+
+	r.metrics.RecordDBQuery("update", "workflows", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow updated", "workflow_id", workflow.ID)
+	return nil
+}
+
+// Delete soft-deletes a workflow
+func (r *PostgresRepository) Delete(ctx context.Context, id string) error {
+	start := time.Now()
+
+	query := `
+		UPDATE workflows
+		SET deleted_at = $2, updated_at = $2
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	now := time.Now()
+	result, err := r.db.Exec(ctx, query, id, now)
+	if err != nil {
+		r.metrics.RecordDBQuery("delete", "workflows", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to delete workflow")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("workflow")
+	}
+
+	r.metrics.RecordDBQuery("delete", "workflows", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow deleted", "workflow_id", id)
+	return nil
+}
+
+// List retrieves workflows with filtering and pagination
+func (r *PostgresRepository) List(ctx context.Context, filter *WorkflowListFilter) ([]*Workflow, int64, error) {
+	start := time.Now()
+
+	// Build query conditions
+	conditions := []string{"deleted_at IS NULL"}
+	args := []interface{}{}
+	argIndex := 1
+
+	if filter.TeamID != nil {
+		conditions = append(conditions, fmt.Sprintf("team_id = $%d", argIndex))
+		args = append(args, *filter.TeamID)
+		argIndex++
+	}
+
+	if filter.OwnerID != nil {
+		conditions = append(conditions, fmt.Sprintf("owner_id = $%d", argIndex))
+		args = append(args, *filter.OwnerID)
+		argIndex++
+	}
+
+	if filter.Status != nil {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIndex))
+		args = append(args, string(*filter.Status))
+		argIndex++
+	}
+
+	if filter.IsTemplate != nil {
+		conditions = append(conditions, fmt.Sprintf("is_template = $%d", argIndex))
+		args = append(args, *filter.IsTemplate)
+		argIndex++
+	}
+
+	if filter.Search != nil && *filter.Search != "" {
+		conditions = append(conditions, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIndex, argIndex))
+		args = append(args, "%"+*filter.Search+"%")
+		argIndex++
+	}
+
+	if filter.CreatedAfter != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIndex))
+		args = append(args, *filter.CreatedAfter)
+		argIndex++
+	}
+
+	if filter.CreatedBefore != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIndex))
+		args = append(args, *filter.CreatedBefore)
+		argIndex++
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+
+	// Count query
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM workflows %s", whereClause)
+	var total int64
+	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		r.metrics.RecordDBQuery("count", "workflows", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to count workflows")
+	}
+
+	// Data query
+	sortBy := filter.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
+	}
+
+	sortOrder := strings.ToUpper(filter.SortOrder)
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	limit := filter.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT id, name, description, status, team_id, owner_id, version,
+			   is_template, template_id, execution_count, last_executed_at,
+			   last_execution_id, success_rate, average_runtime,
+			   created_at, updated_at, created_by, updated_by
+		FROM workflows %s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d`,
+		whereClause, sortBy, sortOrder, argIndex, argIndex+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, dataQuery, args...)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflows", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list workflows")
+	}
+	defer rows.Close()
+
+	var workflows []*Workflow
+	for rows.Next() {
+		var workflow Workflow
+		var lastExecutedAt pgtype.Timestamptz
+		var templateID, lastExecutionID *string
+
+		err := rows.Scan(
+			&workflow.ID, &workflow.Name, &workflow.Description, &workflow.Status,
+			&workflow.TeamID, &workflow.OwnerID, &workflow.Version,
+			&workflow.IsTemplate, &templateID, &workflow.ExecutionCount,
+			&lastExecutedAt, &lastExecutionID, &workflow.SuccessRate,
+			&workflow.AverageRuntime, &workflow.CreatedAt, &workflow.UpdatedAt,
+			&workflow.CreatedBy, &workflow.UpdatedBy,
+		)
+		if err != nil {
+			return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow")
+		}
+
+		workflow.TemplateID = templateID
+		workflow.LastExecutionID = lastExecutionID
+
+		if lastExecutedAt.Valid {
+			t := lastExecutedAt.Time
+			workflow.LastExecutedAt = &t
+		}
+
+		workflows = append(workflows, &workflow)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflows")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflows", "success", time.Since(start))
+	return workflows, total, nil
+}
+
+// Execution-related methods
+
+// CreateExecution creates a new workflow execution
+func (r *PostgresRepository) CreateExecution(ctx context.Context, execution *WorkflowExecution) error {
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflow_executions (
+			id, workflow_id, workflow_name, team_id, trigger_id, status, mode,
+			trigger_data, input_data, output_data, error_message, error_stack,
+			error_node_id, start_time, end_time, duration, nodes_executed,
+			nodes_total, retry_count, max_retries, parent_execution_id,
+			memory_usage, cpu_time, user_agent, ip_address, metadata,
+			created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+			$27, $28
+		)`
+
+	// Serialize JSON fields
+	triggerDataJSON, _ := json.Marshal(execution.TriggerData)
+	inputDataJSON, _ := json.Marshal(execution.InputData)
+	outputDataJSON, _ := json.Marshal(execution.OutputData)
+	metadataJSON, _ := json.Marshal(execution.Metadata)
+
+	_, err := r.db.Exec(ctx, query,
+		execution.ID, execution.WorkflowID, execution.WorkflowName, execution.TeamID,
+		execution.TriggerID, execution.Status, execution.Mode, triggerDataJSON,
+		inputDataJSON, outputDataJSON, execution.ErrorMessage, execution.ErrorStack,
+		execution.ErrorNodeID, execution.StartTime, execution.EndTime, execution.Duration,
+		execution.NodesExecuted, execution.NodesTotal, execution.RetryCount,
+		execution.MaxRetries, execution.ParentExecutionID, execution.MemoryUsage,
+		execution.CPUTime, execution.UserAgent, execution.IPAddress, metadataJSON,
+		execution.CreatedAt, execution.UpdatedAt,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "executions", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create execution")
+	}
+
+	r.metrics.RecordDBQuery("create", "executions", "success", time.Since(start))
+	return nil
+}
+
+// GetExecutionByID retrieves an execution by ID
+func (r *PostgresRepository) GetExecutionByID(ctx context.Context, id string) (*WorkflowExecution, error) {
+	start := time.Now()
+
+	query := `
+		SELECT id, workflow_id, workflow_name, team_id, trigger_id, status, mode,
+			   trigger_data, input_data, output_data, error_message, error_stack,
+			   error_node_id, start_time, end_time, duration, nodes_executed,
+			   nodes_total, retry_count, max_retries, parent_execution_id,
+			   memory_usage, cpu_time, user_agent, ip_address, metadata,
+			   created_at, updated_at
+		FROM workflow_executions
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	var execution WorkflowExecution
+	var triggerDataJSON, inputDataJSON, outputDataJSON, metadataJSON []byte
+	var endTime pgtype.Timestamptz
+	var triggerID, errorMessage, errorStack, errorNodeID, parentExecutionID *string
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&execution.ID, &execution.WorkflowID, &execution.WorkflowName, &execution.TeamID,
+		&triggerID, &execution.Status, &execution.Mode, &triggerDataJSON,
+		&inputDataJSON, &outputDataJSON, &errorMessage, &errorStack,
+		&errorNodeID, &execution.StartTime, &endTime, &execution.Duration,
+		&execution.NodesExecuted, &execution.NodesTotal, &execution.RetryCount,
+		&execution.MaxRetries, &parentExecutionID, &execution.MemoryUsage,
+		&execution.CPUTime, &execution.UserAgent, &execution.IPAddress,
+		&metadataJSON, &execution.CreatedAt, &execution.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			r.metrics.RecordDBQuery("get", "executions", "not_found", time.Since(start))
+			return nil, nil
+		}
+		r.metrics.RecordDBQuery("get", "executions", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get execution")
+	}
+
+	// Deserialize JSON fields
+	json.Unmarshal(triggerDataJSON, &execution.TriggerData)
+	json.Unmarshal(inputDataJSON, &execution.InputData)
+	json.Unmarshal(outputDataJSON, &execution.OutputData)
+	json.Unmarshal(metadataJSON, &execution.Metadata)
+
+	// Handle nullable fields
+	execution.TriggerID = triggerID
+	execution.ErrorMessage = errorMessage
+	execution.ErrorStack = errorStack
+	execution.ErrorNodeID = errorNodeID
+	execution.ParentExecutionID = parentExecutionID
+
+	if endTime.Valid {
+		t := endTime.Time
+		execution.EndTime = &t
+	}
+
+	r.metrics.RecordDBQuery("get", "executions", "success", time.Since(start))
+	return &execution, nil
+}
+
+// UpdateExecution updates an existing execution
+func (r *PostgresRepository) UpdateExecution(ctx context.Context, execution *WorkflowExecution) error {
+	start := time.Now()
+
+	query := `
+		UPDATE workflow_executions SET
+			status = $2, output_data = $3, error_message = $4, error_stack = $5,
+			error_node_id = $6, end_time = $7, duration = $8, nodes_executed = $9,
+			memory_usage = $10, cpu_time = $11, metadata = $12, updated_at = $13
+		WHERE id = $1`
+
+	outputDataJSON, _ := json.Marshal(execution.OutputData)
+	metadataJSON, _ := json.Marshal(execution.Metadata)
+
+	_, err := r.db.Exec(ctx, query,
+		execution.ID, execution.Status, outputDataJSON, execution.ErrorMessage,
+		execution.ErrorStack, execution.ErrorNodeID, execution.EndTime,
+		execution.Duration, execution.NodesExecuted, execution.MemoryUsage,
+		execution.CPUTime, metadataJSON, execution.UpdatedAt,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("update", "executions", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to update execution")
+	}
+
+	r.metrics.RecordDBQuery("update", "executions", "success", time.Since(start))
+	return nil
+}
+
+// ListExecutions retrieves executions with filtering and pagination
+func (r *PostgresRepository) ListExecutions(ctx context.Context, filter *ExecutionListFilter) ([]*WorkflowExecution, int64, error) {
+	// Simplified implementation - similar to List but for executions
+	// This would follow the same pattern as the workflow List method
+	return []*WorkflowExecution{}, 0, nil
+}
+
+// DeleteExecution deletes an execution
+func (r *PostgresRepository) DeleteExecution(ctx context.Context, id string) error {
+	start := time.Now()
+
+	query := `UPDATE workflow_executions SET deleted_at = $2 WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, id, time.Now())
+
+	if err != nil {
+		r.metrics.RecordDBQuery("delete", "executions", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to delete execution")
+	}
+
+	r.metrics.RecordDBQuery("delete", "executions", "success", time.Since(start))
+	return nil
+}
+
+// Stub implementations for remaining methods
+// These would be implemented following similar patterns
+
+func (r *PostgresRepository) CreateVersion(ctx context.Context, version *WorkflowVersion) error {
+	// Implementation for creating workflow versions
+	return nil
+}
+
+func (r *PostgresRepository) GetVersions(ctx context.Context, workflowID string) ([]*WorkflowVersion, error) {
+	// Implementation for getting workflow versions
+	return []*WorkflowVersion{}, nil
+}
+
+func (r *PostgresRepository) GetVersionByNumber(ctx context.Context, workflowID string, version int) (*WorkflowVersion, error) {
+	// Implementation for getting specific version
+	return nil, nil
+}
+
+func (r *PostgresRepository) CreateTemplate(ctx context.Context, template *WorkflowTemplate) error {
+	// Implementation for creating templates
+	return nil
+}
+
+func (r *PostgresRepository) GetTemplateByID(ctx context.Context, id string) (*WorkflowTemplate, error) {
+	// Implementation for getting templates
+	return nil, nil
+}
+
+func (r *PostgresRepository) ListTemplates(ctx context.Context, filter *TemplateListFilter) ([]*WorkflowTemplate, int64, error) {
+	// Implementation for listing templates
+	return []*WorkflowTemplate{}, 0, nil
+}
+
+func (r *PostgresRepository) CreateShare(ctx context.Context, share *WorkflowShare) error {
+	// Implementation for creating shares
+	return nil
+}
+
+func (r *PostgresRepository) GetShares(ctx context.Context, workflowID string) ([]*WorkflowShare, error) {
+	// Implementation for getting shares
+	return []*WorkflowShare{}, nil
+}
+
+func (r *PostgresRepository) DeleteShare(ctx context.Context, id string) error {
+	// Implementation for deleting shares
+	return nil
+}
+
+func (r *PostgresRepository) GetExecutionSummary(ctx context.Context, workflowID string, period string) (*ExecutionSummary, error) {
+	// Implementation for getting execution summaries
+	return &ExecutionSummary{}, nil
+}
+
+func (r *PostgresRepository) GetWorkflowMetrics(ctx context.Context, workflowID string, period string) (*WorkflowMetrics, error) {
+	// Implementation for getting workflow metrics
+	return &WorkflowMetrics{}, nil
+}
+
+func (r *PostgresRepository) GetTeamMetrics(ctx context.Context, teamID string, period string) (*TeamMetrics, error) {
+	// Implementation for getting team metrics
+	return &TeamMetrics{}, nil
+}
+
+func (r *PostgresRepository) CreateTag(ctx context.Context, tag *Tag) error {
+	// Implementation for creating tags
+	return nil
+}
+
+func (r *PostgresRepository) GetTagsByWorkflow(ctx context.Context, workflowID string) ([]*Tag, error) {
+	// Implementation for getting tags by workflow
+	return []*Tag{}, nil
+}
+
+func (r *PostgresRepository) ListTags(ctx context.Context, teamID string) ([]*Tag, error) {
+	// Implementation for listing tags
+	return []*Tag{}, nil
+}
