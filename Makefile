@@ -39,8 +39,8 @@ COMPOSE_FILE := docker-compose.yml
 COMPOSE_DEV_FILE := docker-compose.yml
 
 # Database
-DB_NAME := n8n_pro
-DB_USER := postgres
+DB_NAME := n8n_clone
+DB_USER := user
 DB_PASSWORD := password
 DB_HOST := localhost
 DB_PORT := 5432
