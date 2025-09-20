@@ -1,14 +1,15 @@
 package httpserver
 
 import (
-	"net/http"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"n8n-pro/internal/api/handlers"
 	"n8n-pro/internal/workflows"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewServer(workflowSvc workflows.Service) *http.Server {
+func NewServer(workflowSvc *workflows.Service) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)

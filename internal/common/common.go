@@ -113,6 +113,29 @@ type Serializable interface {
 	FromJSON([]byte) error
 }
 
+// Core domain types
+
+// User represents a user in the system
+type User struct {
+	ID       string   `json:"id"`
+	Email    string   `json:"email"`
+	Name     string   `json:"name,omitempty"`
+	Role     string   `json:"role"`
+	TeamID   string   `json:"team_id,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
+	IsActive bool     `json:"is_active"`
+	Provider string   `json:"provider,omitempty"`
+	Verified bool     `json:"verified,omitempty"`
+	Picture  string   `json:"picture,omitempty"`
+}
+
+// Team represents a team in the system
+type Team struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Plan string `json:"plan,omitempty"`
+}
+
 // Common request/response types
 
 // PaginationRequest represents pagination parameters

@@ -387,15 +387,30 @@ func (r *Retrier) shouldRetry(err error, attempt int, policy *Policy) bool {
 
 // classifyError classifies an error into a retry-relevant type
 func (r *Retrier) classifyError(err error) ErrorType {
+	if appErr := errors.GetAppError(err); appErr != nil {
+		switch appErr.Type {
+		case errors.ErrorTypeNetwork:
+			return ErrorTypeNetwork
+		case errors.ErrorTypeTimeout:
+			return ErrorTypeTimeout
+		case errors.ErrorTypeValidation:
+			return ErrorTypeValidation
+		case errors.ErrorTypeAuthentication, errors.ErrorTypeAuthorization:
+			return ErrorTypeAuth
+		case errors.ErrorTypeRateLimit:
+			return ErrorTypeRateLimit
+		case errors.ErrorTypeExternal:
+			return ErrorTypeServer
+		case errors.ErrorTypeInternal:
+			return ErrorTypeServer
+		case errors.ErrorTypeDatabase:
+			return ErrorTypeServer
+		}
+		return ErrorTypeUnknown
+	}
+
+	// Handle specific error types that might not be AppError
 	switch e := err.(type) {
-	case *errors.NetworkError:
-		return ErrorTypeNetwork
-	case *errors.TimeoutError:
-		return ErrorTypeTimeout
-	case *errors.ValidationError:
-		return ErrorTypeValidation
-	case *errors.UnauthorizedError, *errors.ForbiddenError:
-		return ErrorTypeAuth
 	case *errors.HTTPError:
 		if e.StatusCode == 429 {
 			return ErrorTypeRateLimit
@@ -406,6 +421,8 @@ func (r *Retrier) classifyError(err error) ErrorType {
 		if e.StatusCode >= 400 && e.StatusCode < 500 {
 			return ErrorTypeValidation
 		}
+	case *errors.NetworkError:
+		return ErrorTypeNetwork
 	case *errors.QuotaError:
 		return ErrorTypeQuota
 	}

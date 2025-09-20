@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -325,8 +326,8 @@ func getClientIP(r *http.Request) string {
 	// Fallback to RemoteAddr
 	ip := r.RemoteAddr
 	if strings.Contains(ip, ":") {
-		host, _, err := strings.Cut(ip, ":")
-		if err == nil {
+		host, _, found := strings.Cut(ip, ":")
+		if found {
 			return host
 		}
 	}
@@ -340,23 +341,16 @@ func writeErrorResponse(w http.ResponseWriter, err error) {
 	var statusCode int
 	var message string
 
-	switch e := err.(type) {
-	case *errors.UnauthorizedError:
-		statusCode = http.StatusUnauthorized
-		message = e.Message
-	case *errors.ForbiddenError:
-		statusCode = http.StatusForbidden
-		message = e.Message
-	case *errors.ValidationError:
-		statusCode = http.StatusBadRequest
-		message = e.Message
-	default:
+	if appErr := errors.GetAppError(err); appErr != nil {
+		statusCode = appErr.HTTPStatus()
+		message = appErr.Message
+	} else {
 		statusCode = http.StatusInternalServerError
 		message = "Internal server error"
 	}
 
 	w.WriteHeader(statusCode)
-	response := `{"error":"` + message + `","status":` + string(rune(statusCode)) + `}`
+	response := fmt.Sprintf(`{"error":"%s","status":%d}`, message, statusCode)
 	w.Write([]byte(response))
 }
 
@@ -399,7 +393,16 @@ func isOriginAllowed(origin string, allowedOrigins []string) bool {
 // RequestLogger middleware for logging HTTP requests
 func RequestLogger(log logger.Logger) func(http.Handler) http.Handler {
 	return middleware.RequestLogger(&middleware.DefaultLogFormatter{
-		Logger:  log,
+		Logger:  &loggerAdapter{log},
 		NoColor: true,
 	})
+}
+
+// loggerAdapter adapts our logger.Logger to chi's middleware.LoggerInterface
+type loggerAdapter struct {
+	logger.Logger
+}
+
+func (l *loggerAdapter) Print(v ...interface{}) {
+	l.Logger.Info(fmt.Sprint(v...))
 }
