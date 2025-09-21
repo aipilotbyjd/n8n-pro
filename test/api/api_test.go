@@ -353,6 +353,8 @@ func (suite *APITestSuite) makeRequest(method, path string, body interface{}, he
 		default:
 			reqBody = bytes.NewBuffer(nil)
 		}
+	} else {
+		reqBody = nil
 	}
 
 	req, _ := http.NewRequest(method, suite.baseURL+path, reqBody)
