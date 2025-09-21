@@ -1,7 +1,6 @@
 package benchmarks
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -14,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// BenchmarkWorkflowCreation benchmarks workflow creation performance
-func BenchmarkWorkflowCreation(b *testing.B) {
+// BenchmarkWorkflowCreationLogic benchmarks workflow creation performance
+func BenchmarkWorkflowCreationLogic(b *testing.B) {
 	testUser := testutils.CreateTestUser()
 	
 	b.ResetTimer()
@@ -204,7 +203,7 @@ func BenchmarkWorkflowExecution(b *testing.B) {
 }
 
 // BenchmarkConcurrentWorkflowOperations benchmarks concurrent operations
-func BenchmarkConcurrentWorkflowOperations(b *testing.B) {
+func BenchmarkConcurrentWorkflowLogic(b *testing.B) {
 	testUser := testutils.CreateTestUser()
 	
 	b.Run("ConcurrentCreation", func(b *testing.B) {

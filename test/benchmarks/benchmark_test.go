@@ -550,18 +550,10 @@ func BenchmarkSuite(b *testing.B) {
 
 	// Run sub-benchmarks
 	b.Run("API", func(b *testing.B) {
-		b.Run("Health", func(b *testing.B) {
-			BenchmarkHealthEndpoint(b, server.URL)
-		})
-		b.Run("HealthParallel", func(b *testing.B) {
-			BenchmarkHealthEndpointParallel(b, server.URL)
-		})
-		b.Run("WorkflowCreation", func(b *testing.B) {
-			BenchmarkWorkflowCreation(b, server.URL)
-		})
-		b.Run("WorkflowCreationSizes", func(b *testing.B) {
-			BenchmarkWorkflowCreationSizes(b, server.URL)
-		})
+		b.Run("Health", BenchmarkHealthEndpoint)
+		b.Run("HealthParallel", BenchmarkHealthEndpointParallel)
+		b.Run("WorkflowCreation", BenchmarkWorkflowCreation)
+		b.Run("WorkflowCreationSizes", BenchmarkWorkflowCreationSizes)
 	})
 
 	b.Run("DAG", func(b *testing.B) {
