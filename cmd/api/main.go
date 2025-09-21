@@ -20,7 +20,7 @@ import (
 	"n8n-pro/pkg/metrics"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
@@ -135,13 +135,13 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	r := chi.NewRouter()
 
 	// Middleware
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(chimiddleware.Logger)
+	r.Use(chimiddleware.Recoverer)
 
 	// Timeout middleware
-	r.Use(middleware.Timeout(cfg.API.ReadTimeout))
+	r.Use(chimiddleware.Timeout(cfg.API.ReadTimeout))
 
 	// CORS middleware
 	if cfg.API.EnableCORS {
@@ -158,7 +158,7 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 
 	// Compression middleware
 	if cfg.API.EnableGzip {
-		r.Use(middleware.Compress(5))
+		r.Use(chimiddleware.Compress(5))
 	}
 
 	// Rate limiting middleware (placeholder)

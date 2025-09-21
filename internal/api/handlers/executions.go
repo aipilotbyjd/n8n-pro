@@ -202,7 +202,7 @@ func (h *ExecutionHandler) GetExecution(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	execution, err := h.workflowService.GetExecutionByID(r.Context(), executionID, user.ID)
+	execution, err := h.workflowService.GetExecution(r.Context(), executionID, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -226,7 +226,7 @@ func (h *ExecutionHandler) CancelExecution(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get execution first to verify access
-	execution, err := h.workflowService.GetExecutionByID(r.Context(), executionID, user.ID)
+	execution, err := h.workflowService.GetExecution(r.Context(), executionID, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -277,7 +277,7 @@ func (h *ExecutionHandler) RetryExecution(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get original execution
-	originalExecution, err := h.workflowService.GetExecutionByID(r.Context(), executionID, user.ID)
+	originalExecution, err := h.workflowService.GetExecution(r.Context(), executionID, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return

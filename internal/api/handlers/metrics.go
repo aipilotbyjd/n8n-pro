@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -103,12 +102,12 @@ func (h *MetricsHandler) GetWorkflowMetrics(w http.ResponseWriter, r *http.Reque
 
 	response := WorkflowMetricsResponse{
 		WorkflowID:      metrics.WorkflowID,
-		WorkflowName:    metrics.WorkflowName,
+		WorkflowName:    workflowID, // Use workflowID as name for now
 		TotalExecutions: metrics.TotalExecutions,
 		SuccessfulRuns:  metrics.SuccessfulRuns,
 		FailedRuns:      metrics.FailedRuns,
 		SuccessRate:     metrics.SuccessRate,
-		AverageRuntime:  metrics.AverageRuntime,
+		AverageRuntime:  int64(metrics.AverageRuntime),
 		Period:          period,
 	}
 

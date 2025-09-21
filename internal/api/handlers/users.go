@@ -7,7 +7,6 @@ import (
 
 	"n8n-pro/internal/api/middleware"
 	"n8n-pro/internal/auth"
-	"n8n-pro/internal/common"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 
@@ -56,7 +55,7 @@ func (h *UserHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	fullUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get user details", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to get user information"))
+		writeError(w, errors.InternalError("Failed to get user information"))
 		return
 	}
 
@@ -89,7 +88,7 @@ func (h *UserHandler) UpdateCurrentUser(w http.ResponseWriter, r *http.Request) 
 	currentUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get user for update", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to get user information"))
+		writeError(w, errors.InternalError("Failed to get user information"))
 		return
 	}
 
@@ -126,7 +125,7 @@ func (h *UserHandler) UpdateCurrentUser(w http.ResponseWriter, r *http.Request) 
 	// Update user
 	if err := h.authService.UpdateUser(r.Context(), currentUser); err != nil {
 		h.logger.Error("Failed to update user", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to update user"))
+		writeError(w, errors.InternalError("Failed to update user"))
 		return
 	}
 
@@ -160,7 +159,7 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	currentUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get user for password change", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to get user information"))
+		writeError(w, errors.InternalError("Failed to get user information"))
 		return
 	}
 
@@ -181,7 +180,7 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		h.logger.Error("Failed to hash new password", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to process new password"))
+		writeError(w, errors.InternalError("Failed to process new password"))
 		return
 	}
 
@@ -189,7 +188,7 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	currentUser.Password = string(hashedPassword)
 	if err := h.authService.UpdateUser(r.Context(), currentUser); err != nil {
 		h.logger.Error("Failed to update password", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to update password"))
+		writeError(w, errors.InternalError("Failed to update password"))
 		return
 	}
 
@@ -218,14 +217,14 @@ func (h *UserHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	currentUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get user for deletion", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to get user information"))
+		writeError(w, errors.InternalError("Failed to get user information"))
 		return
 	}
 
 	currentUser.Active = false
 	if err := h.authService.UpdateUser(r.Context(), currentUser); err != nil {
 		h.logger.Error("Failed to deactivate account", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to deactivate account"))
+		writeError(w, errors.InternalError("Failed to deactivate account"))
 		return
 	}
 
