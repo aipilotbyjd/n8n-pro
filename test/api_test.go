@@ -30,7 +30,9 @@ func TestWorkflowAPI(t *testing.T) {
 	fmt.Println("Create workflow successful!")
 
 	var response map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&response)
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("Error decoding response: %v", err)
+	}
 	createdWorkflow := response["data"].(map[string]interface{})
 	workflowID := createdWorkflow["id"].(string)
 

@@ -316,7 +316,7 @@ func TestWorkflowService(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
-		
+
 		appErr := errors.GetAppError(err)
 		require.NotNil(t, appErr)
 		assert.Equal(t, errors.ErrorTypeNotFound, appErr.Type)
@@ -326,20 +326,20 @@ func TestWorkflowService(t *testing.T) {
 
 	t.Run("hasDefinitionChanged", func(t *testing.T) {
 		old := &Workflow{
-			Nodes: []Node{{ID: "1", Name: "Node 1"}},
+			Nodes:  []Node{{ID: "1", Name: "Node 1"}},
 			Config: WorkflowConfig{Timeout: 60},
 		}
 
 		// Same workflow should not have changed
 		new1 := &Workflow{
-			Nodes: []Node{{ID: "1", Name: "Node 1"}},
+			Nodes:  []Node{{ID: "1", Name: "Node 1"}},
 			Config: WorkflowConfig{Timeout: 60},
 		}
 		assert.False(t, service.hasDefinitionChanged(old, new1))
 
 		// Different nodes should have changed
 		new2 := &Workflow{
-			Nodes: []Node{{ID: "2", Name: "Node 2"}},
+			Nodes:  []Node{{ID: "2", Name: "Node 2"}},
 			Config: WorkflowConfig{Timeout: 60},
 		}
 		assert.True(t, service.hasDefinitionChanged(old, new2))
@@ -376,7 +376,7 @@ func TestConcurrentExecutionLimits(t *testing.T) {
 
 		err := service.checkConcurrentExecutionLimits(ctx, workflowID, maxConcurrent)
 		assert.Error(t, err)
-		
+
 		appErr := errors.GetAppError(err)
 		require.NotNil(t, appErr)
 		assert.Equal(t, errors.ErrorTypeValidation, appErr.Type)

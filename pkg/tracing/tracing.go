@@ -8,13 +8,14 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Config holds tracing configuration
@@ -66,7 +67,7 @@ var globalProvider *Provider
 func Initialize(config *Config) error {
 	if !config.Enabled {
 		// Set up a no-op tracer
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(noop.NewTracerProvider())
 		return nil
 	}
 
@@ -85,10 +86,10 @@ func Initialize(config *Config) error {
 	// Create trace exporter based on configuration
 	var exporter sdktrace.SpanExporter
 	switch config.ExporterType {
-	case "jaeger":
-		exporter, err = jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(config.JaegerURL)))
+	case "otlphttp":
+		exporter, err = otlptracehttp.New(context.Background(), otlptracehttp.WithEndpoint(config.JaegerURL))
 		if err != nil {
-			return fmt.Errorf("failed to create jaeger exporter: %w", err)
+			return fmt.Errorf("failed to create otlphttp exporter: %w", err)
 		}
 	case "stdout":
 		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
@@ -117,7 +118,7 @@ func Initialize(config *Config) error {
 		sdktrace.WithResource(res),
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithSampler(sampler),
-		sdktrace.WithSpanLimits(sdktrace.SpanLimits{
+		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{
 			AttributeValueLengthLimit:   -1,
 			AttributeCountLimit:         128,
 			EventCountLimit:             128,

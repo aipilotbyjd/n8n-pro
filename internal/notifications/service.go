@@ -571,7 +571,9 @@ func (s *Service) handleNotificationError(notification *Notification, err error)
 	if s.repository != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.repository.Update(ctx, notification)
+		if err := s.repository.Update(ctx, notification); err != nil {
+			s.logger.Error("Failed to update notification for retry", "error", err, "id", notification.ID)
+		}
 	}
 
 	s.logger.Warn("Notification scheduled for retry", "id", notification.ID, "retry_count", notification.RetryCount, "retry_in", retryDelay)

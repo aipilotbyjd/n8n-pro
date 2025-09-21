@@ -15,17 +15,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+type contextKey string
+
 const (
 	// AuthorizationHeader is the header key for authorization
 	AuthorizationHeader = "Authorization"
 	// BearerPrefix is the prefix for bearer tokens
 	BearerPrefix = "Bearer "
 	// UserContextKey is the context key for user information
-	UserContextKey = "user"
+	UserContextKey = contextKey("user")
 	// TeamContextKey is the context key for team information
-	TeamContextKey = "team"
+	TeamContextKey = contextKey("team")
 	// RequestIDContextKey is the context key for request ID
-	RequestIDContextKey = "request_id"
+	RequestIDContextKey = contextKey("request_id")
 )
 
 // AuthConfig holds authentication middleware configuration
@@ -351,7 +353,10 @@ func writeErrorResponse(w http.ResponseWriter, err error) {
 
 	w.WriteHeader(statusCode)
 	response := fmt.Sprintf(`{"error":"%s","status":%d}`, message, statusCode)
-	w.Write([]byte(response))
+	if _, err := w.Write([]byte(response)); err != nil {
+		// We can't write an error response here, so just log it
+		fmt.Printf("Failed to write error response: %v\n", err)
+	}
 }
 
 // CORS middleware for handling cross-origin requests

@@ -408,7 +408,9 @@ func (s *Service) ProcessPayment(ctx context.Context, payment *Payment) error {
 	if err := s.paymentProvider.ProcessPayment(ctx, payment); err != nil {
 		payment.Status = PaymentStatusFailed
 		payment.FailureMessage = err.Error()
-		s.paymentRepo.Create(ctx, payment)
+		if createErr := s.paymentRepo.Create(ctx, payment); createErr != nil {
+			s.logger.Error("Failed to create payment record after processing failure", "error", createErr, "original_error", err)
+		}
 		return fmt.Errorf("payment processing failed: %w", err)
 	}
 

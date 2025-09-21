@@ -74,25 +74,6 @@ func generateWorkflowData(size int) map[string]interface{} {
 	}
 }
 
-func generateExecutionData(size int) map[string]interface{} {
-	data := make([]map[string]interface{}, size)
-	for i := 0; i < size; i++ {
-		data[i] = map[string]interface{}{
-			"id":    fmt.Sprintf("item-%d", i),
-			"value": fmt.Sprintf("value-%d", i),
-			"index": i,
-		}
-	}
-
-	return map[string]interface{}{
-		"items": data,
-		"metadata": map[string]interface{}{
-			"timestamp": time.Now().Unix(),
-			"size":      size,
-		},
-	}
-}
-
 // HTTP API Benchmarks
 
 func BenchmarkHealthEndpoint(b *testing.B) {
@@ -469,11 +450,11 @@ func BenchmarkMemoryAllocationWithPool(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		data := pool.Get().([]map[string]interface{})
-		data = data[:0] // Reset slice
+		data := pool.Get().(*[]map[string]interface{})
+		*data = (*data)[:0] // Reset slice
 
 		for j := 0; j < 1000; j++ {
-			data = append(data, map[string]interface{}{
+			*data = append(*data, map[string]interface{}{
 				"id":         fmt.Sprintf("node-%d", j),
 				"type":       "test",
 				"parameters": make(map[string]interface{}),

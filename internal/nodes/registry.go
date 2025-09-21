@@ -664,9 +664,11 @@ func (r *Registry) registerCoreNodes() {
 	}
 
 	// Register with a mock factory
-	r.Register(httpNode, func() NodeExecutor {
+	if err := r.Register(httpNode, func() NodeExecutor {
 		return &mockHTTPExecutor{definition: httpNode}
-	})
+	}); err != nil {
+		r.logger.Error("Failed to register core HTTP node", "error", err)
+	}
 
 	r.logger.Info("Core nodes registered", "count", 1)
 }

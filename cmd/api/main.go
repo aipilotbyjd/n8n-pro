@@ -161,11 +161,6 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 		r.Use(chimiddleware.Compress(5))
 	}
 
-	// Rate limiting middleware (placeholder)
-	if cfg.API.EnableRateLimit {
-		// TODO: Implement rate limiting
-	}
-
 	// Health check endpoint
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

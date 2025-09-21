@@ -441,35 +441,32 @@ func (db *DB) monitorConnections() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if !db.connected || db.pool == nil {
-				return
-			}
+	for range ticker.C {
+		if !db.connected || db.pool == nil {
+			return
+		}
 
-			stats := db.Stats()
-			db.metrics.UpdateDBStats(
-				int(stats.OpenConnections),
-				int(stats.IdleConnections),
-				int(stats.InUseConnections),
+		stats := db.Stats()
+		db.metrics.UpdateDBStats(
+			int(stats.OpenConnections),
+			int(stats.IdleConnections),
+			int(stats.InUseConnections),
+		)
+
+		// Log warnings for connection pool issues
+		if stats.OpenConnections >= int32(db.config.MaxOpenConnections)*80/100 {
+			db.logger.Warn("High connection pool usage",
+				"open_connections", stats.OpenConnections,
+				"max_connections", db.config.MaxOpenConnections,
+				"usage_percent", (stats.OpenConnections*100)/int32(db.config.MaxOpenConnections),
 			)
+		}
 
-			// Log warnings for connection pool issues
-			if stats.OpenConnections >= int32(db.config.MaxOpenConnections)*80/100 {
-				db.logger.Warn("High connection pool usage",
-					"open_connections", stats.OpenConnections,
-					"max_connections", db.config.MaxOpenConnections,
-					"usage_percent", (stats.OpenConnections*100)/int32(db.config.MaxOpenConnections),
-				)
-			}
-
-			if stats.WaitCount > 0 {
-				db.logger.Warn("Connection pool wait detected",
-					"wait_count", stats.WaitCount,
-					"wait_duration", stats.WaitDuration,
-				)
-			}
+		if stats.WaitCount > 0 {
+			db.logger.Warn("Connection pool wait detected",
+				"wait_count", stats.WaitCount,
+				"wait_duration", stats.WaitDuration,
+			)
 		}
 	}
 }

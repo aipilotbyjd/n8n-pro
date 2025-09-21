@@ -360,9 +360,9 @@ deps-verify: ## Verify dependencies
 .PHONY: tools-install
 tools-install: ## Install development tools
 	@echo "$(GREEN)Installing development tools...$(RESET)"
-	go install github.com/cosmtrek/air@latest
+	go install github.com/air-verse/air@latest
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install github.com/swaggo/swag/cmd/swag@latest
 
 # =============================================================================

@@ -137,14 +137,14 @@ func New(config *Config, log logger.Logger) (*Client, error) {
 	}
 
 	// Create AWS session
-			awsConfig := &aws.Config{
-			Region:                        aws.String(config.Region),
-			S3ForcePathStyle:              aws.Bool(config.S3ForcePathStyle || config.PathStyle),
-			S3DisableContentMD5Validation: aws.Bool(config.S3DisableContentMD5Check),
-			DisableComputeChecksums:       aws.Bool(config.DisableComputeChecksums),
-			DisableSSL:                    aws.Bool(config.DisableSSL),
-			MaxRetries:                    aws.Int(config.MaxRetries),
-		}
+	awsConfig := &aws.Config{
+		Region:                        aws.String(config.Region),
+		S3ForcePathStyle:              aws.Bool(config.S3ForcePathStyle || config.PathStyle),
+		S3DisableContentMD5Validation: aws.Bool(config.S3DisableContentMD5Check),
+		DisableComputeChecksums:       aws.Bool(config.DisableComputeChecksums),
+		DisableSSL:                    aws.Bool(config.DisableSSL),
+		MaxRetries:                    aws.Int(config.MaxRetries),
+	}
 	// Set custom endpoint if provided
 	if config.Endpoint != "" {
 		awsConfig.Endpoint = aws.String(config.Endpoint)
@@ -266,16 +266,8 @@ func (c *Client) Upload(ctx context.Context, key string, data io.Reader, options
 
 	// Set tags
 	if len(options.Tags) > 0 {
-		var tagSet []*s3.Tag
-		for k, v := range options.Tags {
-			tagSet = append(tagSet, &s3.Tag{
-				Key:   aws.String(k),
-				Value: aws.String(v),
-			})
-		}
 		input.Tagging = aws.String(c.buildTagString(options.Tags))
 	}
-
 	// Perform upload
 	result, err := c.uploader.UploadWithContext(ctx, input)
 	if err != nil {

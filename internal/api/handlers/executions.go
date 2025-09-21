@@ -27,16 +27,16 @@ func NewExecutionHandler(workflowService *workflows.Service, logger logger.Logge
 }
 
 type ExecutionResponse struct {
-	ID          string                 `json:"id"`
-	WorkflowID  string                 `json:"workflow_id"`
-	Status      string                 `json:"status"`
-	Mode        string                 `json:"mode"`
-	StartedAt   string                 `json:"started_at"`
-	FinishedAt  *string                `json:"finished_at,omitempty"`
-	Duration    *int64                 `json:"duration,omitempty"`
-	InputData   map[string]interface{} `json:"input_data,omitempty"`
-	OutputData  map[string]interface{} `json:"output_data,omitempty"`
-	ErrorData   *string                `json:"error_data,omitempty"`
+	ID         string                 `json:"id"`
+	WorkflowID string                 `json:"workflow_id"`
+	Status     string                 `json:"status"`
+	Mode       string                 `json:"mode"`
+	StartedAt  string                 `json:"started_at"`
+	FinishedAt *string                `json:"finished_at,omitempty"`
+	Duration   *int64                 `json:"duration,omitempty"`
+	InputData  map[string]interface{} `json:"input_data,omitempty"`
+	OutputData map[string]interface{} `json:"output_data,omitempty"`
+	ErrorData  *string                `json:"error_data,omitempty"`
 }
 
 type ExecuteWorkflowRequest struct {

@@ -643,10 +643,7 @@ func GetOrSet(ctx context.Context, cache Cache, key string, ttl time.Duration, v
 	}
 
 	// Store in cache for next time
-	if setErr := cache.Set(ctx, key, value, ttl); setErr != nil {
-		// Log error but don't fail the operation
-		// Logger would be passed in a real implementation
-	}
+	cache.Set(ctx, key, value, ttl)
 
 	return value, nil
 }

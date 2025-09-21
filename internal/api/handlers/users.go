@@ -212,7 +212,7 @@ func (h *UserHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	// 2. Cancel active executions
 	// 3. Clean up associated data
 	// 4. Send confirmation email
-	
+
 	// For now, we'll just deactivate the account
 	currentUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {

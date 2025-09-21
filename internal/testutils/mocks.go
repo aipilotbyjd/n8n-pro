@@ -424,7 +424,7 @@ func (t *TestWorkflowExecutor) Execute(ctx context.Context, execution *workflows
 	now := time.Now()
 	execution.EndTime = &now
 	execution.OutputData = map[string]interface{}{
-		"result": "success",
+		"result":          "success",
 		"processed_nodes": len(execution.NodeExecutions),
 	}
 

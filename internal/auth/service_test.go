@@ -66,7 +66,7 @@ func TestAuthService(t *testing.T) {
 			Name:   "Test User",
 			TeamID: uuid.New().String(),
 		}
-		
+
 		mockRepo.On("CreateUser", ctx, user).Return(nil)
 
 		err := service.CreateUser(ctx, user)
@@ -81,7 +81,7 @@ func TestAuthService(t *testing.T) {
 			Email: "test@example.com",
 			Name:  "Test User",
 		}
-		
+
 		mockRepo.On("GetUserByID", ctx, user.ID).Return(user, nil)
 
 		result, err := service.GetUserByID(ctx, user.ID)
@@ -97,7 +97,7 @@ func TestAuthService(t *testing.T) {
 			ID:    uuid.New().String(),
 			Email: "test@example.com",
 		}
-		
+
 		mockRepo.On("GetUserByEmail", ctx, user.Email).Return(user, nil)
 
 		result, err := service.GetUserByEmail(ctx, user.Email)
@@ -112,7 +112,7 @@ func TestAuthService(t *testing.T) {
 			ID:   uuid.New().String(),
 			Name: "Updated Name",
 		}
-		
+
 		mockRepo.On("UpdateUser", ctx, user).Return(nil)
 
 		err := service.UpdateUser(ctx, user)
@@ -123,7 +123,7 @@ func TestAuthService(t *testing.T) {
 
 	t.Run("DeleteUser successful", func(t *testing.T) {
 		userID := uuid.New().String()
-		
+
 		mockRepo.On("DeleteUser", ctx, userID).Return(nil)
 
 		err := service.DeleteUser(ctx, userID)
@@ -138,7 +138,7 @@ func TestAuthService(t *testing.T) {
 			{ID: uuid.New().String(), Email: "user1@example.com"},
 			{ID: uuid.New().String(), Email: "user2@example.com"},
 		}
-		
+
 		mockRepo.On("ListUsers", ctx, teamID).Return(users, nil)
 
 		result, err := service.ListUsers(ctx, teamID)
@@ -178,7 +178,7 @@ func TestPostgresRepository(t *testing.T) {
 	t.Run("CreateUser returns not implemented", func(t *testing.T) {
 		user := &User{ID: "test"}
 		err := repo.CreateUser(ctx, user)
-		
+
 		assert.Error(t, err)
 		appErr := errors.GetAppError(err)
 		require.NotNil(t, appErr)
@@ -188,7 +188,7 @@ func TestPostgresRepository(t *testing.T) {
 
 	t.Run("ListUsers returns empty list", func(t *testing.T) {
 		result, err := repo.ListUsers(ctx, "team-id")
-		
+
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Len(t, result, 0)

@@ -48,7 +48,7 @@ func (suite *APITestSuite) SetupSuite() {
 
 	// Create test user
 	suite.testUser = testutils.CreateTestUser()
-	
+
 	// Generate valid auth token
 	tokenPair, err := suite.jwtSvc.GenerateTokenPair(
 		suite.testUser.ID,
@@ -151,7 +151,7 @@ func (suite *APITestSuite) TestHealthEndpoints() {
 		defer resp.Body.Close()
 
 		assert.Equal(suite.T(), http.StatusOK, resp.StatusCode)
-		
+
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		require.NoError(suite.T(), err)
@@ -167,7 +167,7 @@ func (suite *APITestSuite) TestAuthenticationEndpoints() {
 			"email":    suite.testUser.Email,
 			"password": "test123",
 		}
-		
+
 		body, _ := json.Marshal(loginReq)
 		resp, err := http.Post(suite.baseURL+"/api/v1/auth/login", "application/json", bytes.NewBuffer(body))
 		require.NoError(suite.T(), err)
@@ -191,7 +191,7 @@ func (suite *APITestSuite) TestAuthenticationEndpoints() {
 			"email":    "invalid@example.com",
 			"password": "wrongpassword",
 		}
-		
+
 		body, _ := json.Marshal(loginReq)
 		resp, err := http.Post(suite.baseURL+"/api/v1/auth/login", "application/json", bytes.NewBuffer(body))
 		require.NoError(suite.T(), err)
@@ -213,7 +213,7 @@ func (suite *APITestSuite) TestAuthorizationMiddleware() {
 	suite.Run("invalid token", func() {
 		req, _ := http.NewRequest("GET", suite.baseURL+"/api/v1/workflows", nil)
 		req.Header.Set("Authorization", "Bearer "+suite.invalidToken)
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(suite.T(), err)
 		defer resp.Body.Close()
@@ -224,7 +224,7 @@ func (suite *APITestSuite) TestAuthorizationMiddleware() {
 	suite.Run("valid token", func() {
 		req, _ := http.NewRequest("GET", suite.baseURL+"/api/v1/workflows", nil)
 		req.Header.Set("Authorization", "Bearer "+suite.authToken)
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(suite.T(), err)
 		defer resp.Body.Close()
@@ -245,10 +245,10 @@ func (suite *APITestSuite) TestWorkflowAPIs() {
 			"description": "A test workflow for API testing",
 			"nodes": []map[string]interface{}{
 				{
-					"id":   "start-node",
-					"name": "Start",
-					"type": "trigger",
-					"position": map[string]int{"x": 100, "y": 100},
+					"id":         "start-node",
+					"name":       "Start",
+					"type":       "trigger",
+					"position":   map[string]int{"x": 100, "y": 100},
 					"parameters": map[string]interface{}{},
 				},
 			},
@@ -362,7 +362,7 @@ func (suite *APITestSuite) makeRequest(method, path string, body interface{}, he
 	}
 
 	req, _ := http.NewRequest(method, suite.baseURL+path, reqBody)
-	
+
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -380,7 +380,7 @@ func (suite *APITestSuite) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		tokenString := strings.TrimPrefix(token, "Bearer ")
-		
+
 		// Validate token using JWT service
 		claims, err := suite.jwtSvc.ValidateToken(tokenString)
 		if err != nil {
@@ -403,7 +403,7 @@ func (suite *APITestSuite) authMiddleware(next http.Handler) http.Handler {
 
 func (suite *APITestSuite) writeErrorResponse(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	var statusCode int
 	var message string
 
@@ -505,9 +505,9 @@ func (suite *APITestSuite) handleListWorkflows(w http.ResponseWriter, r *http.Re
 			},
 		},
 		"pagination": map[string]interface{}{
-			"page":       1,
-			"page_size":  50,
-			"total":      1,
+			"page":        1,
+			"page_size":   50,
+			"total":       1,
 			"total_pages": 1,
 		},
 	})

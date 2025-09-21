@@ -195,16 +195,16 @@ func NewRegistry(nodeRegistry *nodes.Registry) *Registry {
 
 // Loader manages plugin loading and lifecycle
 type Loader struct {
-	config        *LoaderConfig
-	registry      *Registry
-	logger        logger.Logger
-	watcher       *FileWatcher
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	metrics       LoaderMetrics
-	cache         map[string]*Plugin
-	cacheMutex    sync.RWMutex
+	config   *LoaderConfig
+	registry *Registry
+	logger   logger.Logger
+	watcher  *FileWatcher
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	metrics  LoaderMetrics
+	cache    map[string]*Plugin
+
 	eventHandlers map[string][]EventHandler
 	handlersMutex sync.RWMutex
 }
@@ -319,7 +319,9 @@ func (l *Loader) Stop() error {
 
 	for _, plugin := range l.registry.plugins {
 		if plugin.Instance != nil {
-			plugin.Instance.Cleanup()
+			if err := plugin.Instance.Cleanup(); err != nil {
+				l.logger.Error("Error during plugin cleanup", "plugin", plugin.ID, "error", err)
+			}
 		}
 	}
 
@@ -861,7 +863,7 @@ func (w *FileWatcher) Stop() {
 
 func (w *FileWatcher) checkChanges(lastMods map[string]time.Time) {
 	for _, watchPath := range w.paths {
-		filepath.WalkDir(watchPath, func(path string, d fs.DirEntry, err error) error {
+		if err := filepath.WalkDir(watchPath, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -885,6 +887,8 @@ func (w *FileWatcher) checkChanges(lastMods map[string]time.Time) {
 
 			lastMods[path] = lastMod
 			return nil
-		})
+		}); err != nil {
+			w.logger.Error("Failed to walk plugin directory", "path", watchPath, "error", err)
+		}
 	}
 }

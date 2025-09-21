@@ -33,7 +33,7 @@ func TestWorkflowModel(t *testing.T) {
 		assert.NotNil(t, workflow.Tags)
 		assert.NotNil(t, workflow.Metadata)
 		assert.NotNil(t, workflow.Config.CustomSettings)
-		
+
 		// Test default config values
 		assert.Equal(t, 3600, workflow.Config.Timeout)
 		assert.Equal(t, 3, workflow.Config.MaxRetryAttempts)
@@ -46,7 +46,7 @@ func TestWorkflowModel(t *testing.T) {
 		teamID := uuid.New().String()
 		userID := uuid.New().String()
 		workflow := NewWorkflow("Test Workflow", teamID, userID)
-		
+
 		// Add a simple node to make it valid
 		node := NewNode("Start", NodeTypeTrigger)
 		workflow.AddNode(*node)
@@ -112,7 +112,7 @@ func TestWorkflowModel(t *testing.T) {
 		teamID := uuid.New().String()
 		userID := uuid.New().String()
 		workflow := NewWorkflow("Test Workflow", teamID, userID)
-		
+
 		// Add nodes
 		startNode := NewNode("Start", NodeTypeTrigger)
 		startNode.ID = "start-node"
@@ -120,7 +120,7 @@ func TestWorkflowModel(t *testing.T) {
 		httpNode.ID = "http-node"
 		workflow.AddNode(*startNode)
 		workflow.AddNode(*httpNode)
-		
+
 		// Add connection
 		connection := NewConnection("start-node", "http-node")
 		workflow.AddConnection(*connection)
@@ -337,7 +337,7 @@ func TestWorkflowJSONSerialization(t *testing.T) {
 		teamID := uuid.New().String()
 		userID := uuid.New().String()
 		original := NewWorkflow("Test", teamID, userID)
-		
+
 		// Add a node to make it more realistic
 		node := NewNode("Start", NodeTypeTrigger)
 		original.AddNode(*node)
@@ -362,20 +362,20 @@ func TestWorkflowJSONSerialization(t *testing.T) {
 // Helper function to assert errors
 func assertError(t *testing.T, err error, expectedType errors.ErrorType, expectedCode errors.ErrorCode) {
 	t.Helper()
-	
+
 	if err == nil {
 		t.Fatal("Expected error but got nil")
 	}
-	
+
 	appErr := errors.GetAppError(err)
 	if appErr == nil {
 		t.Fatalf("Expected AppError but got: %T", err)
 	}
-	
+
 	if appErr.Type != expectedType {
 		t.Errorf("Expected error type %s, got %s", expectedType, appErr.Type)
 	}
-	
+
 	if appErr.Code != expectedCode {
 		t.Errorf("Expected error code %s, got %s", expectedCode, appErr.Code)
 	}

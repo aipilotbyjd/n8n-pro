@@ -62,7 +62,7 @@ func CreateTestUser() *TestUser {
 // CreateTestWorkflow creates a test workflow with default values
 func CreateTestWorkflow(teamID, ownerID string) *TestWorkflow {
 	workflowID := uuid.New().String()
-	
+
 	return &TestWorkflow{
 		ID:          workflowID,
 		Name:        "Test Workflow",
@@ -199,7 +199,7 @@ func (te *TestExecution) ToExecution() *workflows.WorkflowExecution {
 // AssertWorkflowEqual compares two workflows for testing
 func AssertWorkflowEqual(t *testing.T, expected, actual *workflows.Workflow) {
 	t.Helper()
-	
+
 	if expected.ID != actual.ID {
 		t.Errorf("Expected ID %s, got %s", expected.ID, actual.ID)
 	}
@@ -220,7 +220,7 @@ func AssertWorkflowEqual(t *testing.T, expected, actual *workflows.Workflow) {
 // AssertExecutionEqual compares two executions for testing
 func AssertExecutionEqual(t *testing.T, expected, actual *workflows.WorkflowExecution) {
 	t.Helper()
-	
+
 	if expected.ID != actual.ID {
 		t.Errorf("Expected ID %s, got %s", expected.ID, actual.ID)
 	}
@@ -235,7 +235,7 @@ func AssertExecutionEqual(t *testing.T, expected, actual *workflows.WorkflowExec
 // CreateTestHTTPRequest creates a test HTTP request
 func CreateTestHTTPRequest(method, url string, body interface{}) (*http.Request, error) {
 	var req *http.Request
-	
+
 	if body != nil {
 		reqBody, err := json.Marshal(body)
 		if err != nil {
@@ -246,48 +246,47 @@ func CreateTestHTTPRequest(method, url string, body interface{}) (*http.Request,
 	} else {
 		req = httptest.NewRequest(method, url, nil)
 	}
-	
+
 	return req, nil
 }
 
 // CreateTestContext creates a test context with timeout
-func CreateTestContext(timeout time.Duration) context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
-	return ctx
+func CreateTestContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 // CreateComplexTestWorkflow creates a complex workflow for testing
 func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 	now := time.Now()
 	workflowID := uuid.New().String()
-	
+
 	nodes := []workflows.Node{
 		{
-			ID:   "webhook-trigger",
-			Name: "Webhook Trigger",
-			Type: workflows.NodeTypeTrigger,
+			ID:       "webhook-trigger",
+			Name:     "Webhook Trigger",
+			Type:     workflows.NodeTypeTrigger,
 			Position: workflows.Position{X: 100, Y: 100},
 			Parameters: map[string]interface{}{
-				"path": "/webhook/test",
+				"path":    "/webhook/test",
 				"methods": []string{"POST"},
 			},
 		},
 		{
-			ID:   "condition-node",
-			Name: "Condition Check",
-			Type: workflows.NodeTypeCondition,
+			ID:       "condition-node",
+			Name:     "Condition Check",
+			Type:     workflows.NodeTypeCondition,
 			Position: workflows.Position{X: 300, Y: 100},
 			Parameters: map[string]interface{}{
 				"condition": "{{$json.type}} === 'important'",
 			},
 		},
 		{
-			ID:   "http-request",
-			Name: "HTTP Request",
-			Type: workflows.NodeTypeHTTP,
+			ID:       "http-request",
+			Name:     "HTTP Request",
+			Type:     workflows.NodeTypeHTTP,
 			Position: workflows.Position{X: 500, Y: 50},
 			Parameters: map[string]interface{}{
-				"url": "https://api.example.com/notify",
+				"url":    "https://api.example.com/notify",
 				"method": "POST",
 				"headers": map[string]string{
 					"Content-Type": "application/json",
@@ -295,9 +294,9 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 			},
 		},
 		{
-			ID:   "slack-notification",
-			Name: "Slack Notification",
-			Type: workflows.NodeTypeSlack,
+			ID:       "slack-notification",
+			Name:     "Slack Notification",
+			Type:     workflows.NodeTypeSlack,
 			Position: workflows.Position{X: 500, Y: 150},
 			Parameters: map[string]interface{}{
 				"channel": "#alerts",
@@ -305,17 +304,17 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 			},
 		},
 		{
-			ID:   "database-insert",
-			Name: "Database Insert",
-			Type: workflows.NodeTypeDatabase,
+			ID:       "database-insert",
+			Name:     "Database Insert",
+			Type:     workflows.NodeTypeDatabase,
 			Position: workflows.Position{X: 700, Y: 100},
 			Parameters: map[string]interface{}{
 				"operation": "insert",
-				"table": "notifications",
+				"table":     "notifications",
 			},
 		},
 	}
-	
+
 	connections := []workflows.Connection{
 		{
 			ID:         uuid.New().String(),
@@ -363,13 +362,13 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 			Enabled:    true,
 		},
 	}
-	
+
 	variables := []workflows.Variable{
 		{
-			ID:    uuid.New().String(),
-			Key:   "api_key",
-			Value: "test-api-key",
-			Type:  "string",
+			ID:        uuid.New().String(),
+			Key:       "api_key",
+			Value:     "test-api-key",
+			Type:      "string",
 			Encrypted: true,
 		},
 		{
@@ -379,12 +378,12 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 			Type:  "number",
 		},
 	}
-	
+
 	triggers := []workflows.Trigger{
 		{
-			ID:     uuid.New().String(),
-			NodeID: "webhook-trigger",
-			Type:   workflows.TriggerTypeWebhook,
+			ID:      uuid.New().String(),
+			NodeID:  "webhook-trigger",
+			Type:    workflows.TriggerTypeWebhook,
 			Enabled: true,
 			Config: workflows.TriggerConfig{
 				WebhookURL:    "/webhook/test",
@@ -392,7 +391,7 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 			},
 		},
 	}
-	
+
 	return &workflows.Workflow{
 		ID:          workflowID,
 		Name:        "Complex Test Workflow",
@@ -426,7 +425,7 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 				"db_connection": "test-db",
 			},
 		},
-		Tags:     []workflows.Tag{},
+		Tags: []workflows.Tag{},
 		Metadata: map[string]interface{}{
 			"created_by_test": true,
 			"complexity":      "high",
@@ -444,31 +443,31 @@ func CreateComplexTestWorkflow(teamID, ownerID string) *workflows.Workflow {
 // ValidateWorkflowStructure validates basic workflow structure
 func ValidateWorkflowStructure(t *testing.T, workflow *workflows.Workflow) {
 	t.Helper()
-	
+
 	if workflow == nil {
 		t.Fatal("Workflow is nil")
 	}
-	
+
 	if workflow.ID == "" {
 		t.Error("Workflow ID is empty")
 	}
-	
+
 	if workflow.Name == "" {
 		t.Error("Workflow name is empty")
 	}
-	
+
 	if workflow.TeamID == "" {
 		t.Error("Workflow TeamID is empty")
 	}
-	
+
 	if workflow.OwnerID == "" {
 		t.Error("Workflow OwnerID is empty")
 	}
-	
+
 	if len(workflow.Nodes) == 0 {
 		t.Error("Workflow has no nodes")
 	}
-	
+
 	// Validate node IDs are unique
 	nodeIds := make(map[string]bool)
 	for _, node := range workflow.Nodes {
@@ -477,7 +476,7 @@ func ValidateWorkflowStructure(t *testing.T, workflow *workflows.Workflow) {
 		}
 		nodeIds[node.ID] = true
 	}
-	
+
 	// Validate connections reference existing nodes
 	for _, conn := range workflow.Connections {
 		if !nodeIds[conn.SourceNode] {
@@ -502,20 +501,20 @@ func CreateTestValidationError(field string) *errors.AppError {
 // AssertError checks if an error matches expected criteria
 func AssertError(t *testing.T, err error, expectedType errors.ErrorType, expectedCode errors.ErrorCode) {
 	t.Helper()
-	
+
 	if err == nil {
 		t.Fatal("Expected error but got nil")
 	}
-	
+
 	appErr := errors.GetAppError(err)
 	if appErr == nil {
 		t.Fatalf("Expected AppError but got: %T", err)
 	}
-	
+
 	if appErr.Type != expectedType {
 		t.Errorf("Expected error type %s, got %s", expectedType, appErr.Type)
 	}
-	
+
 	if appErr.Code != expectedCode {
 		t.Errorf("Expected error code %s, got %s", expectedCode, appErr.Code)
 	}

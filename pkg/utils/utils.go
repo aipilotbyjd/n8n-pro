@@ -559,7 +559,9 @@ func GenerateRandomStringFromCharset(length int, charset string) string {
 
 	for i := range b {
 		randomBytes := make([]byte, 1)
-		cryptorand.Read(randomBytes)
+		if _, err := cryptorand.Read(randomBytes); err != nil {
+			panic(fmt.Sprintf("failed to generate random bytes: %v", err))
+		}
 		b[i] = charset[randomBytes[0]%byte(charsetLen)]
 	}
 

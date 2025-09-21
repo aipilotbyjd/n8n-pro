@@ -96,7 +96,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		user.Email,
 		user.Role,
 		user.TeamID,
-		"", // team name - would be fetched in real implementation
+		"",        // team name - would be fetched in real implementation
 		"premium", // team plan - would be fetched in real implementation
 		[]string{"workflows:read", "workflows:write", "workflows:delete", "executions:read"},
 	)
@@ -155,7 +155,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Password: string(hashedPassword),
 		Active:   true,
 		TeamID:   common.GenerateID(), // Create new team for user
-		Role:     "admin", // First user in team is admin
+		Role:     "admin",             // First user in team is admin
 	}
 
 	if err := h.authService.CreateUser(r.Context(), user); err != nil {
@@ -211,7 +211,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		user.Email,
 		user.Role,
 		user.TeamID,
-		"", // team name
+		"",        // team name
 		"premium", // team plan
 		[]string{"workflows:read", "workflows:write", "workflows:delete", "executions:read"},
 	)
@@ -250,7 +250,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	// In a real implementation, you would invalidate the token here
 	// For now, we just return success
 	h.logger.Info("User logged out", "user_id", user.ID)
-	
+
 	response := map[string]interface{}{
 		"message": "Logged out successfully",
 	}

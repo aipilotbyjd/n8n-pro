@@ -3,7 +3,7 @@ package gsheet
 import (
 	"context"
 	"fmt"
-	"strings"
+
 	"time"
 
 	"n8n-pro/internal/nodes"
@@ -466,48 +466,4 @@ func (e *GSheetsExecutor) executeClear(ctx context.Context, config *GSheetsConfi
 		Range:         config.Range,
 		RowsAffected:  1, // Mock: assume some rows were cleared
 	}, nil
-}
-
-// buildFullRange builds the full range including sheet name
-func (e *GSheetsExecutor) buildFullRange(sheetName, rangeNotation string) string {
-	if strings.Contains(rangeNotation, "!") {
-		return rangeNotation
-	}
-	return fmt.Sprintf("'%s'!%s", sheetName, rangeNotation)
-}
-
-// convertToA1Notation converts row/col numbers to A1 notation
-func (e *GSheetsExecutor) convertToA1Notation(row, col int) string {
-	columnName := ""
-	for col > 0 {
-		col-- // Convert to 0-based
-		columnName = string(rune('A'+col%26)) + columnName
-		col /= 26
-	}
-	return fmt.Sprintf("%s%d", columnName, row)
-}
-
-// parseA1Notation parses A1 notation to row/col numbers
-func (e *GSheetsExecutor) parseA1Notation(a1 string) (int, int, error) {
-	// Simple implementation - in production would be more robust
-	var col, row int
-	var colStr, rowStr string
-
-	for i, char := range a1 {
-		if char >= '0' && char <= '9' {
-			colStr = a1[:i]
-			rowStr = a1[i:]
-			break
-		}
-	}
-
-	// Convert column letters to number
-	for _, char := range colStr {
-		col = col*26 + int(char-'A') + 1
-	}
-
-	// Convert row string to number
-	fmt.Sscanf(rowStr, "%d", &row)
-
-	return row, col, nil
 }

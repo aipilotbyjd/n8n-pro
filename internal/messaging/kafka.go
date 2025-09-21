@@ -67,18 +67,6 @@ func NewKafkaProducer(config *config.KafkaConfig) (*Producer, error) {
 		Compression:  kafka.Snappy,
 	}
 
-	// Configure SASL if enabled
-	if config.EnableSASL {
-		// Note: SASL configuration would be handled differently in kafka-go
-		// For now, we'll skip this configuration as it requires more complex setup
-	}
-
-	// Configure TLS if enabled
-	if config.EnableTLS {
-		// Note: TLS configuration would be handled differently in kafka-go
-		// For now, we'll skip this configuration as it requires more complex setup
-	}
-
 	producer := &Producer{
 		writer:  writer,
 		config:  config,

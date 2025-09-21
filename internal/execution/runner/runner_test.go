@@ -17,9 +17,9 @@ func TestExecute(t *testing.T) {
 		defer log.SetOutput(os.Stderr)
 
 		testData := []byte(`{"workflow_id": "test-123", "name": "Test Workflow"}`)
-		
+
 		Execute(testData)
-		
+
 		output := buf.String()
 		assert.Contains(t, output, "Executing workflow with data:")
 		assert.Contains(t, output, string(testData))
@@ -32,7 +32,7 @@ func TestExecute(t *testing.T) {
 		defer log.SetOutput(os.Stderr)
 
 		Execute([]byte{})
-		
+
 		output := buf.String()
 		assert.Contains(t, output, "Executing workflow with data:")
 		assert.Contains(t, output, "Workflow execution finished.")
@@ -44,7 +44,7 @@ func TestExecute(t *testing.T) {
 		defer log.SetOutput(os.Stderr)
 
 		Execute(nil)
-		
+
 		output := buf.String()
 		assert.Contains(t, output, "Executing workflow with data:")
 		assert.Contains(t, output, "Workflow execution finished.")
@@ -60,9 +60,9 @@ func TestExecute(t *testing.T) {
 		for i := range largeData {
 			largeData[i] = 'a'
 		}
-		
+
 		Execute(largeData)
-		
+
 		output := buf.String()
 		assert.Contains(t, output, "Executing workflow with data:")
 		assert.Contains(t, output, "Workflow execution finished.")
@@ -78,7 +78,7 @@ func BenchmarkExecute(b *testing.B) {
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		Execute(testData)
 	}

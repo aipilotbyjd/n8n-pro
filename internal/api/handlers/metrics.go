@@ -38,19 +38,19 @@ type WorkflowMetricsResponse struct {
 }
 
 type TeamMetricsResponse struct {
-	TeamID              string                 `json:"team_id"`
-	TotalWorkflows      int64                  `json:"total_workflows"`
-	ActiveWorkflows     int64                  `json:"active_workflows"`
-	TotalExecutions     int64                  `json:"total_executions"`
-	SuccessfulRuns      int64                  `json:"successful_runs"`
-	FailedRuns          int64                  `json:"failed_runs"`
-	SuccessRate         float64                `json:"success_rate"`
-	AverageRuntime      float64                `json:"average_runtime"`
-	ExecutionsToday     int64                  `json:"executions_today"`
-	ExecutionsThisWeek  int64                  `json:"executions_this_week"`
-	ExecutionsThisMonth int64                  `json:"executions_this_month"`
+	TeamID              string                  `json:"team_id"`
+	TotalWorkflows      int64                   `json:"total_workflows"`
+	ActiveWorkflows     int64                   `json:"active_workflows"`
+	TotalExecutions     int64                   `json:"total_executions"`
+	SuccessfulRuns      int64                   `json:"successful_runs"`
+	FailedRuns          int64                   `json:"failed_runs"`
+	SuccessRate         float64                 `json:"success_rate"`
+	AverageRuntime      float64                 `json:"average_runtime"`
+	ExecutionsToday     int64                   `json:"executions_today"`
+	ExecutionsThisWeek  int64                   `json:"executions_this_week"`
+	ExecutionsThisMonth int64                   `json:"executions_this_month"`
 	TopWorkflows        []WorkflowStatsResponse `json:"top_workflows"`
-	Period              string                 `json:"period"`
+	Period              string                  `json:"period"`
 }
 
 type WorkflowStatsResponse struct {
@@ -248,23 +248,23 @@ func (h *MetricsHandler) GetPrometheusMetrics(w http.ResponseWriter, r *http.Req
 
 func (h *MetricsHandler) GetHealthMetrics(w http.ResponseWriter, r *http.Request) {
 	// Public health endpoint - no authentication required
-	
+
 	// Basic health check
 	response := map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": "2023-01-01T12:00:00Z",
 		"version":   "1.0.0",
 		"checks": map[string]interface{}{
-			"database":   "healthy",
-			"cache":      "healthy",
-			"queue":      "healthy",
-			"storage":    "healthy",
+			"database": "healthy",
+			"cache":    "healthy",
+			"queue":    "healthy",
+			"storage":  "healthy",
 		},
 		"metrics": map[string]interface{}{
-			"uptime":              "24h:30m:15s",
-			"requests_processed":  125430,
-			"active_connections":  45,
-			"memory_usage":        "512MB",
+			"uptime":             "24h:30m:15s",
+			"requests_processed": 125430,
+			"active_connections": 45,
+			"memory_usage":       "512MB",
 		},
 	}
 
@@ -273,12 +273,12 @@ func (h *MetricsHandler) GetHealthMetrics(w http.ResponseWriter, r *http.Request
 		user := middleware.GetUserFromContext(r.Context())
 		if user != nil && user.Role == "admin" {
 			response["detailed"] = map[string]interface{}{
-				"cpu_usage":       "45%",
-				"memory_details":  "512MB / 2GB",
-				"disk_usage":      "32%",
-				"network_io":      "125MB/s",
-				"database_pool":   "8/20 connections",
-				"cache_hit_rate":  "94%",
+				"cpu_usage":      "45%",
+				"memory_details": "512MB / 2GB",
+				"disk_usage":     "32%",
+				"network_io":     "125MB/s",
+				"database_pool":  "8/20 connections",
+				"cache_hit_rate": "94%",
 			}
 		}
 	}

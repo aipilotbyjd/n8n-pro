@@ -553,7 +553,7 @@ func (m *Manager) validateCreateRequest(req *CreateCredentialRequest) error {
 	if req.Type == "" {
 		return errors.NewValidationError("Type is required")
 	}
-	if req.Data == nil || len(req.Data) == 0 {
+	if len(req.Data) == 0 {
 		return errors.NewValidationError("Credential data is required")
 	}
 	return nil
@@ -566,7 +566,9 @@ func (m *Manager) buildCredentialData(req *CreateCredentialRequest) *CredentialD
 func (m *Manager) buildCredentialDataFromMap(data map[string]interface{}) *CredentialData {
 	credData := &CredentialData{}
 	jsonData, _ := json.Marshal(data)
-	json.Unmarshal(jsonData, credData)
+	if err := json.Unmarshal(jsonData, credData); err != nil {
+		m.logger.Error("Failed to unmarshal credential data from map", "error", err)
+	}
 	return credData
 }
 

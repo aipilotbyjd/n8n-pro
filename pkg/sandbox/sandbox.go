@@ -272,7 +272,9 @@ func (s *Sandbox) cleanupExecutionContext(ctx *SandboxExecutionContext) {
 
 	// Kill any running processes
 	if ctx.Cmd != nil && ctx.Cmd.Process != nil {
-		ctx.Cmd.Process.Kill()
+		if err := ctx.Cmd.Process.Kill(); err != nil {
+			s.logger.Warn("Failed to kill process", "error", err)
+		}
 	}
 
 	// Remove working directory
@@ -475,7 +477,9 @@ CMD ["node", "script.js"]`
 
 	// Cleanup Docker image
 	cleanupCmd := exec.CommandContext(context.Background(), "docker", "rmi", ctx.ID)
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		s.logger.Warn("Failed to cleanup Docker image", "imageID", ctx.ID, "error", err)
+	}
 
 	return result, err
 }

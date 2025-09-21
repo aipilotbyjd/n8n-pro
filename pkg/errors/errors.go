@@ -72,15 +72,15 @@ const (
 
 // AppError represents a structured application error
 type AppError struct {
-	Type            ErrorType              `json:"type"`
-	Code            ErrorCode              `json:"code"`
-	Message         string                 `json:"message"`
-	Details         string                 `json:"details,omitempty"`
-	Cause           error                  `json:"-"`
-	Context         map[string]interface{} `json:"context,omitempty"`
-	StackTrace      string                 `json:"stack_trace,omitempty"`
-	Retryable       bool                   `json:"retryable"`
-	retryableSet    bool                   // internal flag to track if Retryable was explicitly set
+	Type         ErrorType              `json:"type"`
+	Code         ErrorCode              `json:"code"`
+	Message      string                 `json:"message"`
+	Details      string                 `json:"details,omitempty"`
+	Cause        error                  `json:"-"`
+	Context      map[string]interface{} `json:"context,omitempty"`
+	StackTrace   string                 `json:"stack_trace,omitempty"`
+	Retryable    bool                   `json:"retryable"`
+	retryableSet bool                   // internal flag to track if Retryable was explicitly set
 }
 
 // Error implements the error interface
