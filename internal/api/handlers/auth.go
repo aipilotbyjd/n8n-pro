@@ -218,7 +218,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		h.logger.Error("Failed to generate new tokens", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to refresh tokens"))
+		writeError(w, errors.InternalError("Failed to refresh tokens"))
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *AuthHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	fullUser, err := h.authService.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get user details", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to get user information"))
+		writeError(w, errors.InternalError("Failed to get user information"))
 		return
 	}
 
