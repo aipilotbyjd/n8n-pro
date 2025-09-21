@@ -144,7 +144,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		h.logger.Error("Failed to hash password", "error", err)
-		writeError(w, errors.NewInternalError("Failed to process password"))
+		writeError(w, errors.InternalError("Failed to process password"))
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.authService.CreateUser(r.Context(), user); err != nil {
 		h.logger.Error("Failed to create user", "email", req.Email, "error", err)
-		writeError(w, errors.NewInternalError("Failed to create user account"))
+		writeError(w, errors.InternalError("Failed to create user account"))
 		return
 	}
 
