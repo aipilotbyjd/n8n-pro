@@ -1,6 +1,7 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,6 @@ import (
 	"n8n-pro/pkg/errors"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/mock"
 )
 
 // TestUser represents a test user
@@ -234,19 +234,17 @@ func AssertExecutionEqual(t *testing.T, expected, actual *workflows.WorkflowExec
 
 // CreateTestHTTPRequest creates a test HTTP request
 func CreateTestHTTPRequest(method, url string, body interface{}) (*http.Request, error) {
-	var reqBody []byte
-	var err error
+	var req *http.Request
 	
 	if body != nil {
-		reqBody, err = json.Marshal(body)
+		reqBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-	}
-	
-	req := httptest.NewRequest(method, url, nil)
-	if body != nil {
+		req = httptest.NewRequest(method, url, bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, url, nil)
 	}
 	
 	return req, nil
