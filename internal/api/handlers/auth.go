@@ -103,7 +103,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		h.logger.Error("Failed to generate tokens", "user_id", user.ID, "error", err)
-		writeError(w, errors.NewInternalError("Failed to generate authentication tokens"))
+		writeError(w, errors.InternalError("Failed to generate authentication tokens"))
 		return
 	}
 
