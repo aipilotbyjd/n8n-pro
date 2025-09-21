@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -341,17 +342,20 @@ func (suite *APITestSuite) TestInputValidation() {
 // Helper methods and mock handlers
 
 func (suite *APITestSuite) makeRequest(method, path string, body interface{}, headers map[string]string) *http.Response {
-	var reqBody *bytes.Buffer
+	var reqBody io.Reader
 	if body != nil {
 		switch v := body.(type) {
 		case *bytes.Buffer:
 			reqBody = v
 		case *strings.Reader:
-			reqBody = bytes.NewBufferString("")
+			buf := bytes.NewBufferString("")
 			v.Seek(0, 0)
-			reqBody.ReadFrom(v)
+			buf.ReadFrom(v)
+			reqBody = buf
+		case string:
+			reqBody = strings.NewReader(v)
 		default:
-			reqBody = bytes.NewBuffer(nil)
+			reqBody = nil
 		}
 	} else {
 		reqBody = nil

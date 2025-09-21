@@ -9,6 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"n8n-pro/internal/api/handlers"
+	"n8n-pro/internal/api/middleware"
+	"n8n-pro/internal/auth"
+	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
 	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/workflows"
@@ -64,8 +68,19 @@ func main() {
 		nil, // credential service - will be implemented
 	)
 
+	// Initialize auth services
+	authRepo := auth.NewPostgresRepository(db)
+	authSvc := auth.NewService(authRepo)
+	jwtSvc := jwt.New(&jwt.Config{
+		Secret:               cfg.Auth.JWTSecret,
+		AccessTokenDuration:  cfg.Auth.JWTExpiration,
+		RefreshTokenDuration: cfg.Auth.RefreshTokenExpiration,
+		Issuer:               "n8n-pro",
+		Audience:             "n8n-pro-api",
+	})
+
 	// Create HTTP server
-	server := createServer(cfg, workflowSvc, log)
+	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, log)
 
 	// Start metrics server
 	if cfg.Metrics.Enabled {
@@ -116,7 +131,7 @@ func main() {
 	log.Info("Server exited")
 }
 
-func createServer(cfg *config.Config, workflowSvc *workflows.Service, log logger.Logger) *http.Server {
+func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, log logger.Logger) *http.Server {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -171,29 +186,72 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, log logger
 		w.Write([]byte(response))
 	})
 
+	// Initialize handlers
+	workflowHandler := handlers.NewWorkflowHandler(workflowSvc)
+	authHandler := handlers.NewAuthHandler(authSvc, jwtSvc, log)
+	userHandler := handlers.NewUserHandler(authSvc, log)
+	executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
+	metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
+
+	// Authentication middleware
+	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
+		JWTSecret:      cfg.Auth.JWTSecret,
+		RequiredScopes: []string{},
+		SkipPaths:      []string{"/health", "/version", "/api/v1/auth"},
+	}, jwtSvc, log)
+
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Workflows
-		r.Route("/workflows", func(r chi.Router) {
-			r.Get("/", handleListWorkflows(workflowSvc, log))
-			r.Post("/", handleCreateWorkflow(workflowSvc, log))
-			r.Get("/{id}", handleGetWorkflow(workflowSvc, log))
-			r.Put("/{id}", handleUpdateWorkflow(workflowSvc, log))
-			r.Delete("/{id}", handleDeleteWorkflow(workflowSvc, log))
-			r.Post("/{id}/execute", handleExecuteWorkflow(workflowSvc, log))
+		// Auth endpoints (no auth required)
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/login", authHandler.Login)
+			r.Post("/register", authHandler.Register)
+			r.Post("/refresh", authHandler.RefreshToken)
+			r.Post("/logout", authHandler.Logout)
 		})
 
-		// Executions
-		r.Route("/executions", func(r chi.Router) {
-			r.Get("/", handleListExecutions(workflowSvc, log))
-			r.Get("/{id}", handleGetExecution(workflowSvc, log))
-			r.Delete("/{id}/cancel", handleCancelExecution(workflowSvc, log))
-			r.Post("/{id}/retry", handleRetryExecution(workflowSvc, log))
-		})
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
 
-		// Metrics
-		r.Get("/metrics/{workflowId}", handleGetWorkflowMetrics(workflowSvc, log))
+			// Workflows
+			r.Route("/workflows", func(r chi.Router) {
+				r.Get("/", workflowHandler.ListWorkflows)
+				r.Post("/", workflowHandler.CreateWorkflow)
+				r.Get("/{id}", workflowHandler.GetWorkflow)
+				r.Put("/{id}", workflowHandler.UpdateWorkflow)
+				r.Delete("/{id}", workflowHandler.DeleteWorkflow)
+				r.Post("/{id}/execute", executionHandler.ExecuteWorkflow)
+			})
+
+			// Executions
+			r.Route("/executions", func(r chi.Router) {
+				r.Get("/", executionHandler.ListExecutions)
+				r.Get("/{id}", executionHandler.GetExecution)
+				r.Delete("/{id}/cancel", executionHandler.CancelExecution)
+				r.Post("/{id}/retry", executionHandler.RetryExecution)
+			})
+
+			// Users
+			r.Route("/users", func(r chi.Router) {
+				r.Get("/me", userHandler.GetCurrentUser)
+				r.Put("/me", userHandler.UpdateCurrentUser)
+				r.Post("/me/change-password", userHandler.ChangePassword)
+				r.Delete("/me", userHandler.DeleteAccount)
+			})
+
+			// Metrics
+			r.Route("/metrics", func(r chi.Router) {
+				r.Get("/workflows/{workflowId}", metricsHandler.GetWorkflowMetrics)
+				r.Get("/team", metricsHandler.GetTeamMetrics)
+				r.Get("/system", metricsHandler.GetSystemMetrics)
+				r.Get("/health", metricsHandler.GetHealthMetrics)
+			})
+		})
 	})
+
+	// Prometheus metrics endpoint (admin only)
+	r.Get("/metrics", metricsHandler.GetPrometheusMetrics)
 
 	return &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port),
@@ -201,134 +259,5 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, log logger
 		ReadTimeout:  cfg.API.ReadTimeout,
 		WriteTimeout: cfg.API.WriteTimeout,
 		IdleTimeout:  cfg.API.IdleTimeout,
-	}
-}
-
-// Handler functions (simplified implementations)
-
-func handleListWorkflows(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement authentication and extract user ID
-		userID := "demo-user" // Placeholder
-
-		filter := &workflows.WorkflowListFilter{
-			Limit:  50,
-			Offset: 0,
-		}
-
-		workflows, total, err := svc.List(r.Context(), filter, userID)
-		if err != nil {
-			log.Error("Failed to list workflows", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Total-Count", fmt.Sprintf("%d", total))
-		w.WriteHeader(http.StatusOK)
-
-		// Simple JSON response (in production, use proper JSON marshaling)
-		response := fmt.Sprintf(`{"workflows":%d,"total":%d}`, len(workflows), total)
-		w.Write([]byte(response))
-	}
-}
-
-func handleCreateWorkflow(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement request parsing and workflow creation
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"message":"Workflow creation not implemented yet"}`))
-	}
-}
-
-func handleGetWorkflow(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		workflowID := chi.URLParam(r, "id")
-		userID := "demo-user" // Placeholder
-
-		workflow, err := svc.GetByID(r.Context(), workflowID, userID)
-		if err != nil {
-			log.Error("Failed to get workflow", "error", err, "workflow_id", workflowID)
-			http.Error(w, "Workflow not found", http.StatusNotFound)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		response := fmt.Sprintf(`{"id":"%s","name":"%s"}`, workflow.ID, workflow.Name)
-		w.Write([]byte(response))
-	}
-}
-
-func handleUpdateWorkflow(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message":"Workflow update not implemented yet"}`))
-	}
-}
-
-func handleDeleteWorkflow(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		workflowID := chi.URLParam(r, "id")
-		userID := "demo-user" // Placeholder
-
-		err := svc.Delete(r.Context(), workflowID, userID)
-		if err != nil {
-			log.Error("Failed to delete workflow", "error", err, "workflow_id", workflowID)
-			http.Error(w, "Failed to delete workflow", http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func handleExecuteWorkflow(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		w.Write([]byte(`{"message":"Workflow execution not implemented yet"}`))
-	}
-}
-
-func handleListExecutions(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"executions":[],"total":0}`))
-	}
-}
-
-func handleGetExecution(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message":"Get execution not implemented yet"}`))
-	}
-}
-
-func handleCancelExecution(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message":"Cancel execution not implemented yet"}`))
-	}
-}
-
-func handleRetryExecution(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message":"Retry execution not implemented yet"}`))
-	}
-}
-
-func handleGetWorkflowMetrics(svc *workflows.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message":"Metrics not implemented yet"}`))
 	}
 }
