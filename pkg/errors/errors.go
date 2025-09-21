@@ -72,14 +72,15 @@ const (
 
 // AppError represents a structured application error
 type AppError struct {
-	Type       ErrorType              `json:"type"`
-	Code       ErrorCode              `json:"code"`
-	Message    string                 `json:"message"`
-	Details    string                 `json:"details,omitempty"`
-	Cause      error                  `json:"-"`
-	Context    map[string]interface{} `json:"context,omitempty"`
-	StackTrace string                 `json:"stack_trace,omitempty"`
-	Retryable  bool                   `json:"retryable"`
+	Type            ErrorType              `json:"type"`
+	Code            ErrorCode              `json:"code"`
+	Message         string                 `json:"message"`
+	Details         string                 `json:"details,omitempty"`
+	Cause           error                  `json:"-"`
+	Context         map[string]interface{} `json:"context,omitempty"`
+	StackTrace      string                 `json:"stack_trace,omitempty"`
+	Retryable       bool                   `json:"retryable"`
+	retryableSet    bool                   // internal flag to track if Retryable was explicitly set
 }
 
 // Error implements the error interface
@@ -358,8 +359,9 @@ func (e *AppError) HTTPStatus() int {
 
 // IsRetryable checks if the error is retryable
 func (e *AppError) IsRetryable() bool {
-	if e.Retryable {
-		return true
+	// If retryable was explicitly set, use that value
+	if e.retryableSet {
+		return e.Retryable
 	}
 
 	// Some errors are inherently retryable
@@ -376,6 +378,7 @@ func (e *AppError) IsRetryable() bool {
 // SetRetryable marks the error as retryable
 func (e *AppError) SetRetryable(retryable bool) *AppError {
 	e.Retryable = retryable
+	e.retryableSet = true
 	return e
 }
 
