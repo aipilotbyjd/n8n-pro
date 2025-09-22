@@ -192,7 +192,16 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
 		JWTSecret:      cfg.Auth.JWTSecret,
 		RequiredScopes: []string{},
-		SkipPaths:      []string{"/health", "/version", "/api/v1/auth"},
+		SkipPaths: []string{
+			"/health",
+			"/version",
+			"/api/v1/auth/login",
+			"/api/v1/auth/register",
+			"/api/v1/auth/refresh",
+			"/api/v1/auth/forgot-password",
+			"/api/v1/auth/reset-password",
+			"/api/v1/auth/verify-email",
+		},
 	}, jwtSvc, log)
 
 	// API routes
@@ -203,11 +212,21 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 			r.Post("/register", authHandler.Register)
 			r.Post("/refresh", authHandler.RefreshToken)
 			r.Post("/logout", authHandler.Logout)
+			r.Post("/forgot-password", authHandler.ForgotPassword)
+			r.Post("/reset-password", authHandler.ResetPassword)
+			r.Post("/verify-email", authHandler.VerifyEmail)
 		})
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware)
+
+			// User profile endpoints
+			r.Route("/profile", func(r chi.Router) {
+				r.Get("/", authHandler.GetCurrentUser)
+				r.Put("/", authHandler.UpdateProfile)
+				r.Post("/send-verification", authHandler.SendVerificationEmail)
+			})
 
 			// Workflows
 			r.Route("/workflows", func(r chi.Router) {
@@ -227,7 +246,7 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 				r.Post("/{id}/retry", executionHandler.RetryExecution)
 			})
 
-			// Users
+			// Users (legacy endpoints for backwards compatibility)
 			r.Route("/users", func(r chi.Router) {
 				r.Get("/me", userHandler.GetCurrentUser)
 				r.Put("/me", userHandler.UpdateCurrentUser)
