@@ -1,0 +1,373 @@
+{
+	"info": {
+		"_postman_id": "n8n-pro-api-collection",
+		"name": "n8n Pro API Collection",
+		"description": "Complete API collection for n8n Pro workflow automation platform",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "n8n-pro"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.success && response.data.access_token) {",
+									"        pm.environment.set('access_token', response.data.access_token);",
+									"        pm.environment.set('refresh_token', response.data.refresh_token);",
+									"        pm.environment.set('user_id', response.data.user.id);",
+									"        pm.environment.set('team_id', response.data.user.team_id);",
+									"        console.log('✅ Login successful, tokens saved');",
+									"    }",
+									"}",
+									"pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Response has access token', () => {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data.access_token).to.exist;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"test@example.com\",\n  \"password\": \"testpassword123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.success && response.data.access_token) {",
+									"        pm.environment.set('access_token', response.data.access_token);",
+									"        pm.environment.set('refresh_token', response.data.refresh_token);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"},
+						"url": {"raw": "{{base_url}}/auth/refresh", "host": ["{{base_url}}"], "path": ["auth", "refresh"]}
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {"raw": "{{base_url}}/auth/logout", "host": ["{{base_url}}"], "path": ["auth", "logout"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "Workflows",
+			"item": [
+				{
+					"name": "List Workflows",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.data.workflows.length > 0) {",
+									"    pm.environment.set('workflow_id', response.data.workflows[0].id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/workflows?page=1&page_size=20&status=active",
+							"host": ["{{base_url}}"],
+							"path": ["workflows"],
+							"query": [
+								{"key": "page", "value": "1"},
+								{"key": "page_size", "value": "20"},
+								{"key": "status", "value": "active"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Workflow",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.success && response.data.id) {",
+									"        pm.environment.set('created_workflow_id', response.data.id);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Customer Onboarding Workflow\",\n  \"description\": \"Automated customer onboarding process\",\n  \"nodes\": [\n    {\n      \"id\": \"node_1\",\n      \"type\": \"webhook\",\n      \"position\": {\"x\": 100, \"y\": 100},\n      \"parameters\": {\"method\": \"POST\", \"path\": \"/customer-signup\"}\n    }\n  ],\n  \"connections\": [],\n  \"tags\": [{\"name\": \"onboarding\", \"color\": \"#00ff00\"}],\n  \"config\": {\"timeout\": 300, \"retry_attempts\": 3}\n}"
+						},
+						"url": {"raw": "{{base_url}}/workflows", "host": ["{{base_url}}"], "path": ["workflows"]}
+					}
+				},
+				{
+					"name": "Get Workflow",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {"raw": "{{base_url}}/workflows/{{workflow_id}}", "host": ["{{base_url}}"], "path": ["workflows", "{{workflow_id}}"]}
+					}
+				},
+				{
+					"name": "Execute Workflow",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 202) {",
+									"    const response = pm.response.json();",
+									"    if (response.data.execution_id) {",
+									"        pm.environment.set('execution_id', response.data.execution_id);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"input_data\": {\n    \"customer\": {\n      \"name\": \"John Doe\",\n      \"email\": \"john.doe@example.com\"\n    }\n  },\n  \"mode\": \"manual\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/workflows/{{workflow_id}}/execute", "host": ["{{base_url}}"], "path": ["workflows", "{{workflow_id}}", "execute"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "Executions",
+			"item": [
+				{
+					"name": "List Executions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/executions?page=1&page_size=20",
+							"host": ["{{base_url}}"],
+							"path": ["executions"],
+							"query": [{"key": "page", "value": "1"}, {"key": "page_size", "value": "20"}]
+						}
+					}
+				},
+				{
+					"name": "Get Execution",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {"raw": "{{base_url}}/executions/{{execution_id}}", "host": ["{{base_url}}"], "path": ["executions", "{{execution_id}}"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "User Management",
+			"item": [
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {"raw": "{{base_url}}/users/me", "host": ["{{base_url}}"], "path": ["users", "me"]}
+					}
+				},
+				{
+					"name": "Update Current User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Name\",\n  \"email\": \"new.email@example.com\"\n}"},
+						"url": {"raw": "{{base_url}}/users/me", "host": ["{{base_url}}"], "path": ["users", "me"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "Metrics",
+			"item": [
+				{
+					"name": "Get Workflow Metrics",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/metrics/workflows/{{workflow_id}}?period=30d",
+							"host": ["{{base_url}}"],
+							"path": ["metrics", "workflows", "{{workflow_id}}"],
+							"query": [{"key": "period", "value": "30d"}]
+						}
+					}
+				},
+				{
+					"name": "Get Team Metrics",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/metrics/team?period=30d",
+							"host": ["{{base_url}}"],
+							"path": ["metrics", "team"],
+							"query": [{"key": "period", "value": "30d"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Webhooks",
+			"item": [
+				{
+					"name": "Trigger Workflow Webhook",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"customer_data\": {\n    \"name\": \"Jane Smith\",\n    \"email\": \"jane@example.com\"\n  }\n}"},
+						"url": {"raw": "{{webhook_base_url}}/webhook/{{workflow_id}}", "host": ["{{webhook_base_url}}"], "path": ["webhook", "{{workflow_id}}"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "System",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"url": {"raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"]}
+					}
+				},
+				{
+					"name": "Version Info",
+					"request": {
+						"method": "GET",
+						"url": {"raw": "{{base_url}}/version", "host": ["{{base_url}}"], "path": ["version"]}
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global pre-request script",
+					"console.log('Request to:', pm.request.url.toString());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global test script",
+					"pm.test('Response time is less than 5000ms', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(5000);",
+					"});",
+					"",
+					"if (pm.response.code >= 400) {",
+					"    console.error('❌ Request failed:', pm.response.status, pm.response.json());",
+					"} else {",
+					"    console.log('✅ Request successful:', pm.response.status);",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8080/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "webhook_base_url",
+			"value": "http://localhost:8081",
+			"type": "string"
+		},
+		{
+			"key": "user_email",
+			"value": "admin@example.com",
+			"type": "string"
+		},
+		{
+			"key": "user_password",
+			"value": "admin123",
+			"type": "string"
+		}
+	]
+}
