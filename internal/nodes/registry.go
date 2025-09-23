@@ -9,10 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"n8n-pro/internal/nodes/db"
-	"n8n-pro/internal/nodes/gsheet"
-	"n8n-pro/internal/nodes/http"
-	"n8n-pro/internal/nodes/slack"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 )
@@ -623,87 +619,9 @@ func (r *Registry) validateParameterValue(paramDef *Parameter, value interface{}
 }
 
 func (r *Registry) registerCoreNodes() {
-	// Register HTTP Request node
-	if err := r.Register(&NodeDefinition{
-		Name:        "n8n-nodes-base.httpRequest",
-		DisplayName: "HTTP Request",
-		Description: "Makes HTTP requests and returns the response data",
-		Version:     "2.0.0",
-		Type:        NodeTypeHTTP,
-		Category:    CategoryCore,
-		Status:      NodeStatusStable,
-		Icon:        "fa:globe",
-		Color:       "#2196F3",
-		Subtitle:    "={{$parameter[\"method\"]}} {{$parameter[\"url\"]}}",
-		Group:       []string{"input", "output"},
-		Tags:        []string{"http", "api", "request", "web", "rest", "webhook"},
-	}, func() NodeExecutor {
-		return http.New(r.logger)
-	}); err != nil {
-		r.logger.Error("Failed to register HTTP node", "error", err)
-	}
-
-	// Register Slack node
-	if err := r.Register(&NodeDefinition{
-		Name:        "n8n-nodes-base.slack",
-		DisplayName: "Slack",
-		Description: "Send messages and interact with Slack",
-		Version:     "2.0.0",
-		Type:        NodeTypeAction,
-		Category:    CategoryCommunication,
-		Status:      NodeStatusStable,
-		Icon:        "file:slack.svg",
-		Color:       "#4A154B",
-		Subtitle:    "={{$parameter[\"operation\"]}} {{$parameter[\"channel\"]}}",
-		Group:       []string{"output"},
-		Tags:        []string{"slack", "messaging", "communication", "chat", "notifications"},
-	}, func() NodeExecutor {
-		return slack.New(r.logger)
-	}); err != nil {
-		r.logger.Error("Failed to register Slack node", "error", err)
-	}
-
-	// Register Google Sheets node
-	if err := r.Register(&NodeDefinition{
-		Name:        "n8n-nodes-base.googleSheets",
-		DisplayName: "Google Sheets",
-		Description: "Read and write data to Google Sheets",
-		Version:     "2.0.0",
-		Type:        NodeTypeAction,
-		Category:    CategoryIntegration,
-		Status:      NodeStatusStable,
-		Icon:        "file:googlesheets.svg",
-		Color:       "#34A853",
-		Subtitle:    "={{$parameter[\"operation\"]}} {{$parameter[\"sheet_name\"]}}",
-		Group:       []string{"input", "output"},
-		Tags:        []string{"google", "sheets", "spreadsheet", "data", "productivity"},
-	}, func() NodeExecutor {
-		return gsheet.New(r.logger)
-	}); err != nil {
-		r.logger.Error("Failed to register Google Sheets node", "error", err)
-	}
-
-	// Register Database node
-	if err := r.Register(&NodeDefinition{
-		Name:        "n8n-nodes-base.database",
-		DisplayName: "Database",
-		Description: "Execute SQL queries against databases",
-		Version:     "1.0.0",
-		Type:        NodeTypeDatabase,
-		Category:    CategoryDatabase,
-		Status:      NodeStatusStable,
-		Icon:        "fa:database",
-		Color:       "#336791",
-		Subtitle:    "={{$parameter[\"operation\"]}} {{$parameter[\"database\"]}}",
-		Group:       []string{"input", "output"},
-		Tags:        []string{"database", "sql", "postgres", "mysql", "data"},
-	}, func() NodeExecutor {
-		return db.New(r.logger)
-	}); err != nil {
-		r.logger.Error("Failed to register Database node", "error", err)
-	}
-
-	r.logger.Info("Core nodes registered", "count", 4)
+	// Core nodes will be registered by the application startup
+	// This avoids import cycles between internal packages
+	r.logger.Info("Core node registry initialized")
 }
 
 

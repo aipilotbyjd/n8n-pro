@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"sync"
 
 	"n8n-pro/pkg/nodes"

@@ -15,7 +15,10 @@ import (
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
 	"n8n-pro/internal/credentials"
+	"n8n-pro/internal/nodes"
 	"n8n-pro/internal/storage/postgres"
+	"n8n-pro/internal/teams"
+	"n8n-pro/internal/webhooks"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
@@ -61,7 +64,7 @@ func main() {
 	workflowRepo := workflows.NewPostgresRepository(db)
 	
 	// Initialize credential management
-	credentialStore := credentials.NewStore(db, log)
+	credentialStore := credentials.NewStore(db.GetPool(), log)
 	credentialManager, err := credentials.NewManager(credentialStore, &credentials.Config{
 		EncryptionKey: cfg.Auth.JWTSecret, // Use JWT secret as encryption key for now
 	}, log)
@@ -79,9 +82,14 @@ func main() {
 		credentialManager,
 	)
 
-	// Initialize auth services
+	// Initialize services
 	authRepo := auth.NewPostgresRepository(db)
 	authSvc := auth.NewService(authRepo)
+	teamRepo := teams.NewPostgresRepository(db)
+	teamSvc := teams.NewService(teamRepo)
+	webhookRepo := webhooks.NewPostgresRepository(db)
+	webhookSvc := webhooks.NewService(nil, webhookRepo, db, workflowSvc, nil, log)
+	nodeRegistry := nodes.GetRegistry()
 	jwtSvc := jwt.New(&jwt.Config{
 		Secret:               cfg.Auth.JWTSecret,
 		AccessTokenDuration:  cfg.Auth.JWTExpiration,
@@ -91,7 +99,7 @@ func main() {
 	})
 
 	// Create HTTP server
-	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, credentialManager, log)
+	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, credentialManager, teamSvc, webhookSvc, nodeRegistry, log)
 
 	// Start metrics server
 	if cfg.Metrics.Enabled {
@@ -142,7 +150,7 @@ func main() {
 	log.Info("Server exited")
 }
 
-func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, credentialManager *credentials.Manager, log logger.Logger) *http.Server {
+func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, credentialManager *credentials.Manager, teamSvc *teams.Service, webhookSvc *webhooks.Service, nodeRegistry *nodes.Registry, log logger.Logger) *http.Server {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -199,6 +207,11 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
 	metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
 	credentialHandler := handlers.NewCredentialHandler(credentialManager, log)
+	teamsHandler := handlers.NewTeamsHandler(teamSvc, log)
+	webhooksHandler := handlers.NewWebhooksHandler(webhookSvc, log)
+	nodesHandler := handlers.NewNodesHandler(nodeRegistry, log)
+	settingsHandler := handlers.NewSettingsHandler(log)
+	templatesHandler := handlers.NewTemplatesHandler(log)
 
 	// Authentication middleware
 	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
@@ -285,6 +298,64 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 				r.Delete("/{id}", credentialHandler.DeleteCredential)
 				r.Post("/{id}/test", credentialHandler.TestCredential)
 				r.Get("/{id}/data", credentialHandler.GetDecryptedCredential)
+			})
+
+			// Teams
+			r.Route("/teams", func(r chi.Router) {
+				r.Get("/", teamsHandler.ListTeams)
+				r.Post("/", teamsHandler.CreateTeam)
+				r.Get("/{id}", teamsHandler.GetTeam)
+				r.Put("/{id}", teamsHandler.UpdateTeam)
+				r.Delete("/{id}", teamsHandler.DeleteTeam)
+				r.Post("/{id}/members", teamsHandler.AddMember)
+				r.Get("/{id}/members", teamsHandler.ListMembers)
+				r.Delete("/{id}/members/{user_id}", teamsHandler.RemoveMember)
+			})
+
+			// Webhooks
+			r.Route("/webhooks", func(r chi.Router) {
+				r.Get("/", webhooksHandler.ListWebhooks) // ?workflow_id=required
+				r.Post("/", webhooksHandler.CreateWebhook)
+				r.Get("/{id}", webhooksHandler.GetWebhook)
+				r.Put("/{id}", webhooksHandler.UpdateWebhook)
+				r.Delete("/{id}", webhooksHandler.DeleteWebhook)
+				r.Get("/{id}/executions", webhooksHandler.GetWebhookExecutions)
+				r.Post("/{id}/test", webhooksHandler.TestWebhook)
+			})
+
+			// Nodes
+			r.Route("/nodes", func(r chi.Router) {
+				r.Get("/", nodesHandler.ListNodes)
+				r.Get("/categories", nodesHandler.ListCategories)
+				r.Get("/stats", nodesHandler.GetNodeStats)
+				r.Get("/{type}", nodesHandler.GetNode)
+				r.Post("/{type}/test", nodesHandler.TestNode)
+			})
+
+			// Templates
+			r.Route("/templates", func(r chi.Router) {
+				r.Get("/", templatesHandler.ListTemplates)
+				r.Post("/", templatesHandler.CreateTemplate)
+				r.Get("/categories", templatesHandler.ListCategories)
+				r.Get("/stats", templatesHandler.GetTemplateStats)
+				r.Get("/{id}", templatesHandler.GetTemplate)
+				r.Put("/{id}", templatesHandler.UpdateTemplate)
+				r.Delete("/{id}", templatesHandler.DeleteTemplate)
+				r.Post("/{id}/use", templatesHandler.UseTemplate)
+			})
+
+			// Settings
+			r.Route("/settings", func(r chi.Router) {
+				// User settings
+				r.Get("/user", settingsHandler.GetUserSettings)
+				r.Put("/user", settingsHandler.UpdateUserSettings)
+				r.Post("/user/reset", settingsHandler.ResetUserSettings)
+				r.Get("/user/export", settingsHandler.ExportSettings)
+				r.Post("/user/import", settingsHandler.ImportSettings)
+				
+				// System settings (admin only)
+				r.Get("/system", settingsHandler.GetSystemSettings)
+				r.Put("/system", settingsHandler.UpdateSystemSettings)
 			})
 		})
 	})

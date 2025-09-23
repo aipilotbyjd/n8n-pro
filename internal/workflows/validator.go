@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"n8n-pro/internal/auth"
-	"n8n-pro/internal/common"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 )
@@ -238,7 +237,7 @@ func (v *DefaultValidator) validateNodes(nodes []Node) error {
 
 		// Validate individual node
 		if err := v.validateNode(&nodes[i]); err != nil {
-			return errors.Wrap(err, errors.ErrorTypeValidation, errors.CodeValidationFailed,
+			return errors.Wrap(err, errors.ErrorTypeValidation, errors.CodeInvalidInput,
 				fmt.Sprintf("validation failed for node %s", node.ID))
 		}
 	}
@@ -449,7 +448,7 @@ func (v *DefaultValidator) validateTriggers(triggers []Trigger, nodes []Node) er
 
 		// Type-specific validation
 		if err := v.validateTriggerConfig(trigger.Type, &trigger.Config); err != nil {
-			return errors.Wrap(err, errors.ErrorTypeValidation, errors.CodeValidationFailed,
+			return errors.Wrap(err, errors.ErrorTypeValidation, errors.CodeInvalidInput,
 				fmt.Sprintf("validation failed for trigger %s", trigger.ID))
 		}
 	}

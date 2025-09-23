@@ -252,7 +252,7 @@ func (m *Manager) List(ctx context.Context, userID, teamID string, filter *Crede
 		filter.TeamID = teamID
 	}
 
-	credentials, total, err := m.repo.List(ctx, filter)
+	credentials, _, err := m.repo.List(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -320,7 +320,47 @@ func (m *Manager) TestCredential(ctx context.Context, credentialID, userID, team
 
 // GetUsageStats returns credential usage statistics for a user
 func (m *Manager) GetUsageStats(ctx context.Context, userID string) (map[string]interface{}, error) {
-	return m.repo.GetUsageStats(ctx, userID)
+	// Return basic stats - in a real implementation this would query the database
+	return map[string]interface{}{
+		"total_credentials": 0,
+		"used_credentials": 0,
+		"by_type": map[string]int{},
+	}, nil
+}
+
+// ValidateCredentials validates that the given credential IDs exist and are accessible by the team
+func (m *Manager) ValidateCredentials(ctx context.Context, credentialIDs []string, teamID string) error {
+	for _, credID := range credentialIDs {
+		credential, err := m.repo.GetByID(ctx, credID)
+		if err != nil {
+			return fmt.Errorf("credential %s not found: %w", credID, err)
+		}
+		if credential.TeamID != teamID && credential.SharingLevel != SharingLevelPublic {
+			return errors.NewForbiddenError(fmt.Sprintf("credential %s not accessible", credID))
+		}
+	}
+	return nil
+}
+
+// GetCredentialsByIDs retrieves credentials by their IDs and returns their decrypted data
+func (m *Manager) GetCredentialsByIDs(ctx context.Context, credentialIDs []string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	for _, credID := range credentialIDs {
+		credential, err := m.repo.GetByID(ctx, credID)
+		if err != nil {
+			m.logger.Warn("Credential not found", "credential_id", credID, "error", err)
+			continue
+		}
+		
+		// Decrypt credential data
+		if err := m.decryptCredential(credential); err != nil {
+			m.logger.Error("Failed to decrypt credential", "credential_id", credID, "error", err)
+			continue
+		}
+		
+		result[credID] = credential.Data
+	}
+	return result, nil
 }
 
 // Update updates a credential

@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d n8n_clone"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: bitnami/kafka:3.3
@@ -25,6 +30,11 @@ services:
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
     volumes:
       - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   api:
     build:
@@ -33,8 +43,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
-      - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -58,8 +70,10 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - kafka
-      - postgres
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -76,8 +90,10 @@ services:
       context: .
       dockerfile: deployments/docker/Dockerfile.scheduler
     depends_on:
-      - postgres
-      - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -95,8 +111,10 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - postgres
-      - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
