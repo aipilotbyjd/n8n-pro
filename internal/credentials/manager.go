@@ -227,27 +227,30 @@ func (m *Manager) Create(ctx context.Context, userID, teamID string, req *Create
 	return credential, nil
 }
 
-// GetByID retrieves a credential by ID with optional decryption
-func (m *Manager) GetByID(ctx context.Context, id string, decrypt bool) (*Credential, error) {
-	credential, err := m.repo.GetByID(ctx, id)
+// GetByID retrieves a credential by ID with access control
+func (m *Manager) GetByID(ctx context.Context, userID, teamID, credentialID string) (*Credential, error) {
+	credential, err := m.repo.GetByID(ctx, credentialID)
 	if err != nil {
 		return nil, err
 	}
 
-	if decrypt {
-		if err := m.decryptCredential(credential); err != nil {
-			return nil, fmt.Errorf("failed to decrypt credential: %w", err)
-		}
+	// Check access permissions
+	if !m.canAccess(credential, userID, teamID) {
+		return nil, errors.NewForbiddenError("Insufficient permissions to access credential")
 	}
 
 	return credential, nil
 }
 
-// GetForUser retrieves credentials accessible by a user
-func (m *Manager) GetForUser(ctx context.Context, userID, teamID string, filter *CredentialFilter) ([]*Credential, int, error) {
-	// Set user/team filters
-	filter.OwnerID = userID
-	filter.TeamID = teamID
+// List retrieves credentials accessible by a user
+func (m *Manager) List(ctx context.Context, userID, teamID string, filter *CredentialFilter) ([]*Credential, int, error) {
+	// Set user/team filters if not already set
+	if filter.OwnerID == "" {
+		filter.OwnerID = userID
+	}
+	if filter.TeamID == "" {
+		filter.TeamID = teamID
+	}
 
 	credentials, total, err := m.repo.List(ctx, filter)
 	if err != nil {
@@ -262,7 +265,62 @@ func (m *Manager) GetForUser(ctx context.Context, userID, teamID string, filter 
 		}
 	}
 
-	return accessible, total, nil
+	return accessible, len(accessible), nil
+}
+
+// TestCredential tests if a credential is valid and returns a result
+func (m *Manager) TestCredential(ctx context.Context, credentialID, userID, teamID string) (*TestResult, error) {
+	credData, err := m.GetDecryptedData(ctx, credentialID, userID, teamID)
+	if err != nil {
+		return nil, err
+	}
+
+	credential, err := m.repo.GetByID(ctx, credentialID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create test result
+	result := &TestResult{
+		CredentialID: credentialID,
+		TestedAt:     time.Now(),
+	}
+
+	// Test credential based on type
+	switch credential.Type {
+	case CredentialTypeAPIKey:
+		err = m.testAPIKey(credential.TestEndpoint, credData)
+	case CredentialTypeBasicAuth:
+		err = m.testBasicAuth(credential.TestEndpoint, credData)
+	case CredentialTypeDatabase:
+		err = m.testDatabase(credData)
+	case CredentialTypeOAuth2:
+		err = errors.NewValidationError("OAuth2 testing requires browser interaction")
+	default:
+		err = errors.NewValidationError("Credential testing not implemented for this type")
+	}
+
+	if err != nil {
+		result.Success = false
+		result.Message = err.Error()
+		result.Details = map[string]interface{}{
+			"error": err.Error(),
+			"type":  string(credential.Type),
+		}
+	} else {
+		result.Success = true
+		result.Message = "Credential test successful"
+		result.Details = map[string]interface{}{
+			"type": string(credential.Type),
+		}
+	}
+
+	return result, nil
+}
+
+// GetUsageStats returns credential usage statistics for a user
+func (m *Manager) GetUsageStats(ctx context.Context, userID string) (map[string]interface{}, error) {
+	return m.repo.GetUsageStats(ctx, userID)
 }
 
 // Update updates a credential
@@ -388,30 +446,7 @@ func (m *Manager) GetDecryptedData(ctx context.Context, credentialID, userID, te
 	return credData, nil
 }
 
-// TestCredential tests if a credential is valid
-func (m *Manager) TestCredential(ctx context.Context, credentialID, userID, teamID string) error {
-	credData, err := m.GetDecryptedData(ctx, credentialID, userID, teamID)
-	if err != nil {
-		return err
-	}
 
-	credential, err := m.repo.GetByID(ctx, credentialID)
-	if err != nil {
-		return err
-	}
-
-	// Test credential based on type
-	switch credential.Type {
-	case CredentialTypeAPIKey:
-		return m.testAPIKey(credential.TestEndpoint, credData)
-	case CredentialTypeBasicAuth:
-		return m.testBasicAuth(credential.TestEndpoint, credData)
-	case CredentialTypeDatabase:
-		return m.testDatabase(credData)
-	default:
-		return errors.NewValidationError("Credential testing not implemented for this type")
-	}
-}
 
 // Helper methods
 
@@ -617,4 +652,13 @@ type UpdateCredentialRequest struct {
 	TestEndpoint string                 `json:"test_endpoint"`
 	Tags         []string               `json:"tags"`
 	Data         map[string]interface{} `json:"data"`
+}
+
+// TestResult represents the result of credential testing
+type TestResult struct {
+	CredentialID string                 `json:"credential_id"`
+	Success      bool                   `json:"success"`
+	Message      string                 `json:"message"`
+	Details      map[string]interface{} `json:"details"`
+	TestedAt     time.Time              `json:"tested_at"`
 }

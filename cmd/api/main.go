@@ -14,6 +14,7 @@ import (
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
+	"n8n-pro/internal/credentials"
 	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
@@ -58,6 +59,16 @@ func main() {
 
 	// Initialize repositories and services
 	workflowRepo := workflows.NewPostgresRepository(db)
+	
+	// Initialize credential management
+	credentialStore := credentials.NewStore(db, log)
+	credentialManager, err := credentials.NewManager(credentialStore, &credentials.Config{
+		EncryptionKey: cfg.Auth.JWTSecret, // Use JWT secret as encryption key for now
+	}, log)
+	if err != nil {
+		log.Fatal("Failed to initialize credential manager", "error", err)
+	}
+	
 	workflowSvc := workflows.NewService(
 		workflowRepo,
 		db,
@@ -65,7 +76,7 @@ func main() {
 		nil, // validator - will be implemented
 		nil, // executor - will be implemented
 		nil, // template service - will be implemented
-		nil, // credential service - will be implemented
+		credentialManager,
 	)
 
 	// Initialize auth services
@@ -80,7 +91,7 @@ func main() {
 	})
 
 	// Create HTTP server
-	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, log)
+	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, credentialManager, log)
 
 	// Start metrics server
 	if cfg.Metrics.Enabled {
@@ -131,7 +142,7 @@ func main() {
 	log.Info("Server exited")
 }
 
-func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, log logger.Logger) *http.Server {
+func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, credentialManager *credentials.Manager, log logger.Logger) *http.Server {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -187,6 +198,7 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	userHandler := handlers.NewUserHandler(authSvc, log)
 	executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
 	metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
+	credentialHandler := handlers.NewCredentialHandler(credentialManager, log)
 
 	// Authentication middleware
 	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
@@ -260,6 +272,19 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 				r.Get("/team", metricsHandler.GetTeamMetrics)
 				r.Get("/system", metricsHandler.GetSystemMetrics)
 				r.Get("/health", metricsHandler.GetHealthMetrics)
+			})
+
+			// Credentials
+			r.Route("/credentials", func(r chi.Router) {
+				r.Get("/", credentialHandler.ListCredentials)
+				r.Post("/", credentialHandler.CreateCredential)
+				r.Get("/types", credentialHandler.GetCredentialTypes)
+				r.Get("/stats", credentialHandler.GetCredentialStats)
+				r.Get("/{id}", credentialHandler.GetCredential)
+				r.Put("/{id}", credentialHandler.UpdateCredential)
+				r.Delete("/{id}", credentialHandler.DeleteCredential)
+				r.Post("/{id}/test", credentialHandler.TestCredential)
+				r.Get("/{id}/data", credentialHandler.GetDecryptedCredential)
 			})
 		})
 	})

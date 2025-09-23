@@ -603,9 +603,148 @@ func (r *PostgresRepository) UpdateExecution(ctx context.Context, execution *Wor
 
 // ListExecutions retrieves executions with filtering and pagination
 func (r *PostgresRepository) ListExecutions(ctx context.Context, filter *ExecutionListFilter) ([]*WorkflowExecution, int64, error) {
-	// Simplified implementation - similar to List but for executions
-	// This would follow the same pattern as the workflow List method
-	return []*WorkflowExecution{}, 0, nil
+	start := time.Now()
+
+	// Build query conditions
+	conditions := []string{"deleted_at IS NULL"}
+	args := []interface{}{}
+	argIndex := 1
+
+	if filter.WorkflowID != nil {
+		conditions = append(conditions, fmt.Sprintf("workflow_id = $%d", argIndex))
+		args = append(args, *filter.WorkflowID)
+		argIndex++
+	}
+
+	if filter.TeamID != nil {
+		conditions = append(conditions, fmt.Sprintf("team_id = $%d", argIndex))
+		args = append(args, *filter.TeamID)
+		argIndex++
+	}
+
+	if filter.Status != nil {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIndex))
+		args = append(args, string(*filter.Status))
+		argIndex++
+	}
+
+	if filter.Mode != nil {
+		conditions = append(conditions, fmt.Sprintf("mode = $%d", argIndex))
+		args = append(args, *filter.Mode)
+		argIndex++
+	}
+
+	if filter.StartAfter != nil {
+		conditions = append(conditions, fmt.Sprintf("start_time >= $%d", argIndex))
+		args = append(args, *filter.StartAfter)
+		argIndex++
+	}
+
+	if filter.StartBefore != nil {
+		conditions = append(conditions, fmt.Sprintf("start_time <= $%d", argIndex))
+		args = append(args, *filter.StartBefore)
+		argIndex++
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+
+	// Count query
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM workflow_executions %s", whereClause)
+	var total int64
+	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		r.metrics.RecordDBQuery("count", "workflow_executions", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to count workflow executions")
+	}
+
+	// Data query
+	sortBy := filter.SortBy
+	if sortBy == "" {
+		sortBy = "start_time"
+	}
+
+	sortOrder := strings.ToUpper(filter.SortOrder)
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	limit := filter.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT id, workflow_id, workflow_name, team_id, trigger_id, status, mode,
+			   start_time, end_time, duration, nodes_executed, nodes_total,
+			   retry_count, max_retries, parent_execution_id, error_message,
+			   memory_usage, cpu_time, created_at, updated_at
+		FROM workflow_executions %s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d`,
+		whereClause, sortBy, sortOrder, argIndex, argIndex+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, dataQuery, args...)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_executions", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list workflow executions")
+	}
+	defer rows.Close()
+
+	var executions []*WorkflowExecution
+	for rows.Next() {
+		var execution WorkflowExecution
+		var endTime pgtype.Timestamptz
+		var triggerID, parentExecutionID, errorMessage *string
+
+		err := rows.Scan(
+			&execution.ID, &execution.WorkflowID, &execution.WorkflowName,
+			&execution.TeamID, &triggerID, &execution.Status, &execution.Mode,
+			&execution.StartTime, &endTime, &execution.Duration,
+			&execution.NodesExecuted, &execution.NodesTotal, &execution.RetryCount,
+			&execution.MaxRetries, &parentExecutionID, &errorMessage,
+			&execution.MemoryUsage, &execution.CPUTime,
+			&execution.CreatedAt, &execution.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow execution")
+		}
+
+		// Handle nullable fields
+		execution.TriggerID = triggerID
+		execution.ParentExecutionID = parentExecutionID
+		execution.ErrorMessage = errorMessage
+
+		if endTime.Valid {
+			t := endTime.Time
+			execution.EndTime = &t
+		}
+
+		// Initialize maps to avoid nil pointer errors
+		execution.TriggerData = make(map[string]interface{})
+		execution.InputData = make(map[string]interface{})
+		execution.OutputData = make(map[string]interface{})
+		execution.Metadata = make(map[string]interface{})
+
+		executions = append(executions, &execution)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow executions")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_executions", "success", time.Since(start))
+	return executions, total, nil
 }
 
 // DeleteExecution deletes an execution
@@ -673,32 +812,329 @@ func (r *PostgresRepository) DeleteShare(ctx context.Context, id string) error {
 	return nil
 }
 
+// Analytics and metrics implementations
+
 func (r *PostgresRepository) GetExecutionSummary(ctx context.Context, workflowID string, period string) (*ExecutionSummary, error) {
-	// Implementation for getting execution summaries
-	return &ExecutionSummary{}, nil
+	start := time.Now()
+
+	// Build time filter based on period
+	timeFilter := r.buildTimeFilter(period)
+
+	query := fmt.Sprintf(`
+		SELECT 
+			COUNT(*) as total_count,
+			COUNT(CASE WHEN status = 'completed' THEN 1 END) as success_count,
+			COUNT(CASE WHEN status = 'failed' THEN 1 END) as failure_count,
+			AVG(CASE WHEN duration IS NOT NULL THEN duration END) as avg_runtime,
+			MAX(start_time) as last_execution
+		FROM workflow_executions 
+		WHERE workflow_id = $1 AND deleted_at IS NULL %s`, timeFilter)
+
+	var summary ExecutionSummary
+	var lastExecution pgtype.Timestamptz
+	var avgRuntime pgtype.Float8
+
+	err := r.db.QueryRow(ctx, query, workflowID).Scan(
+		&summary.TotalCount, &summary.SuccessCount, &summary.FailureCount,
+		&avgRuntime, &lastExecution,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("analytics", "execution_summary", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get execution summary")
+	}
+
+	summary.WorkflowID = workflowID
+	summary.SuccessRate = summary.GetSuccessRate()
+
+	if avgRuntime.Valid {
+		summary.AverageRuntime = int64(avgRuntime.Float64)
+	}
+
+	if lastExecution.Valid {
+		t := lastExecution.Time
+		summary.LastExecution = &t
+	}
+
+	r.metrics.RecordDBQuery("analytics", "execution_summary", "success", time.Since(start))
+	return &summary, nil
 }
 
 func (r *PostgresRepository) GetWorkflowMetrics(ctx context.Context, workflowID string, period string) (*WorkflowMetrics, error) {
-	// Implementation for getting workflow metrics
-	return &WorkflowMetrics{}, nil
+	start := time.Now()
+
+	timeFilter := r.buildTimeFilter(period)
+
+	query := fmt.Sprintf(`
+		SELECT 
+			COUNT(*) as total_executions,
+			COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_runs,
+			COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_runs,
+			AVG(CASE WHEN duration IS NOT NULL THEN duration/1000.0 END) as avg_runtime,
+			MIN(CASE WHEN duration IS NOT NULL THEN duration/1000.0 END) as min_runtime,
+			MAX(CASE WHEN duration IS NOT NULL THEN duration/1000.0 END) as max_runtime,
+			COUNT(CASE WHEN DATE(start_time) = CURRENT_DATE THEN 1 END) as executions_today,
+			COUNT(CASE WHEN start_time >= DATE_TRUNC('week', CURRENT_DATE) THEN 1 END) as executions_this_week,
+			MAX(start_time) as last_execution
+		FROM workflow_executions 
+		WHERE workflow_id = $1 AND deleted_at IS NULL %s`, timeFilter)
+
+	var metrics WorkflowMetrics
+	var avgRuntime, minRuntime, maxRuntime pgtype.Float8
+	var lastExecution pgtype.Timestamptz
+
+	err := r.db.QueryRow(ctx, query, workflowID).Scan(
+		&metrics.TotalExecutions, &metrics.SuccessfulRuns, &metrics.FailedRuns,
+		&avgRuntime, &minRuntime, &maxRuntime,
+		&metrics.ExecutionsToday, &metrics.ExecutionsThisWeek, &lastExecution,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("analytics", "workflow_metrics", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow metrics")
+	}
+
+	metrics.WorkflowID = workflowID
+
+	if metrics.TotalExecutions > 0 {
+		metrics.SuccessRate = float64(metrics.SuccessfulRuns) / float64(metrics.TotalExecutions) * 100
+	}
+
+	if avgRuntime.Valid {
+		metrics.AverageRuntime = avgRuntime.Float64
+	}
+	if minRuntime.Valid {
+		metrics.MinRuntime = minRuntime.Float64
+	}
+	if maxRuntime.Valid {
+		metrics.MaxRuntime = maxRuntime.Float64
+	}
+
+	if lastExecution.Valid {
+		t := lastExecution.Time
+		metrics.LastExecution = &t
+	}
+
+	r.metrics.RecordDBQuery("analytics", "workflow_metrics", "success", time.Since(start))
+	return &metrics, nil
 }
 
 func (r *PostgresRepository) GetTeamMetrics(ctx context.Context, teamID string, period string) (*TeamMetrics, error) {
-	// Implementation for getting team metrics
-	return &TeamMetrics{}, nil
+	start := time.Now()
+
+	timeFilter := r.buildTimeFilter(period)
+
+	// Get basic team metrics
+	query := fmt.Sprintf(`
+		SELECT 
+			(SELECT COUNT(*) FROM workflows WHERE team_id = $1 AND deleted_at IS NULL) as total_workflows,
+			(SELECT COUNT(*) FROM workflows WHERE team_id = $1 AND status = 'active' AND deleted_at IS NULL) as active_workflows,
+			COUNT(*) as total_executions,
+			COUNT(CASE WHEN we.status = 'completed' THEN 1 END) as successful_runs,
+			COUNT(CASE WHEN we.status = 'failed' THEN 1 END) as failed_runs,
+			AVG(CASE WHEN we.duration IS NOT NULL THEN we.duration/1000.0 END) as avg_runtime,
+			COUNT(CASE WHEN DATE(we.start_time) = CURRENT_DATE THEN 1 END) as executions_today,
+			COUNT(CASE WHEN we.start_time >= DATE_TRUNC('week', CURRENT_DATE) THEN 1 END) as executions_this_week,
+			COUNT(CASE WHEN we.start_time >= DATE_TRUNC('month', CURRENT_DATE) THEN 1 END) as executions_this_month,
+			MAX(we.start_time) as last_activity
+		FROM workflow_executions we
+		WHERE we.team_id = $1 AND we.deleted_at IS NULL %s`, timeFilter)
+
+	var metrics TeamMetrics
+	var avgRuntime pgtype.Float8
+	var lastActivity pgtype.Timestamptz
+
+	err := r.db.QueryRow(ctx, query, teamID).Scan(
+		&metrics.TotalWorkflows, &metrics.ActiveWorkflows, &metrics.TotalExecutions,
+		&metrics.SuccessfulRuns, &metrics.FailedRuns, &avgRuntime,
+		&metrics.ExecutionsToday, &metrics.ExecutionsThisWeek, &metrics.ExecutionsThisMonth,
+		&lastActivity,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("analytics", "team_metrics", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get team metrics")
+	}
+
+	metrics.TeamID = teamID
+
+	if metrics.TotalExecutions > 0 {
+		metrics.SuccessRate = float64(metrics.SuccessfulRuns) / float64(metrics.TotalExecutions) * 100
+	}
+
+	if avgRuntime.Valid {
+		metrics.AverageRuntime = avgRuntime.Float64
+	}
+
+	if lastActivity.Valid {
+		t := lastActivity.Time
+		metrics.LastActivity = &t
+	}
+
+	// Get top workflows
+	topWorkflowsQuery := fmt.Sprintf(`
+		SELECT 
+			w.id, w.name,
+			COUNT(we.id) as executions,
+			COUNT(CASE WHEN we.status = 'completed' THEN 1 END) * 100.0 / COUNT(we.id) as success_rate
+		FROM workflows w
+		LEFT JOIN workflow_executions we ON w.id = we.workflow_id AND we.deleted_at IS NULL %s
+		WHERE w.team_id = $1 AND w.deleted_at IS NULL
+		GROUP BY w.id, w.name
+		HAVING COUNT(we.id) > 0
+		ORDER BY executions DESC
+		LIMIT 10`, timeFilter)
+
+	topRows, err := r.db.Query(ctx, topWorkflowsQuery, teamID)
+	if err != nil {
+		r.logger.Warn("Failed to get top workflows", "team_id", teamID, "error", err)
+	} else {
+		defer topRows.Close()
+		for topRows.Next() {
+			var ws WorkflowStats
+			var successRate pgtype.Float8
+			err := topRows.Scan(&ws.WorkflowID, &ws.WorkflowName, &ws.Executions, &successRate)
+			if err != nil {
+				r.logger.Warn("Failed to scan top workflow", "error", err)
+				continue
+			}
+			if successRate.Valid {
+				ws.SuccessRate = successRate.Float64
+			}
+			metrics.TopWorkflows = append(metrics.TopWorkflows, ws)
+		}
+	}
+
+	r.metrics.RecordDBQuery("analytics", "team_metrics", "success", time.Since(start))
+	return &metrics, nil
 }
 
+// Helper method to build time filters
+func (r *PostgresRepository) buildTimeFilter(period string) string {
+	switch period {
+	case "1d":
+		return " AND start_time >= NOW() - INTERVAL '1 day'"
+	case "7d":
+		return " AND start_time >= NOW() - INTERVAL '7 days'"
+	case "30d":
+		return " AND start_time >= NOW() - INTERVAL '30 days'"
+	case "90d":
+		return " AND start_time >= NOW() - INTERVAL '90 days'"
+	case "1y":
+		return " AND start_time >= NOW() - INTERVAL '1 year'"
+	default:
+		return "" // "all" - no time filter
+	}
+}
+
+// Tag management implementations
+
 func (r *PostgresRepository) CreateTag(ctx context.Context, tag *Tag) error {
-	// Implementation for creating tags
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflow_tags (
+			id, name, color, description, team_id, created_at, created_by
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7
+		)`
+
+	_, err := r.db.Exec(ctx, query,
+		tag.ID, tag.Name, tag.Color, tag.Description,
+		tag.TeamID, tag.CreatedAt, tag.CreatedBy,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_tags", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create workflow tag")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_tags", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow tag created", "tag_id", tag.ID, "name", tag.Name)
 	return nil
 }
 
 func (r *PostgresRepository) GetTagsByWorkflow(ctx context.Context, workflowID string) ([]*Tag, error) {
-	// Implementation for getting tags by workflow
-	return []*Tag{}, nil
+	start := time.Now()
+
+	query := `
+		SELECT t.id, t.name, t.color, t.description, t.team_id, t.created_at, t.created_by
+		FROM workflow_tags t
+		JOIN workflow_tag_associations wta ON t.id = wta.tag_id
+		WHERE wta.workflow_id = $1
+		ORDER BY t.name`
+
+	rows, err := r.db.Query(ctx, query, workflowID)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_tags", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get tags by workflow")
+	}
+	defer rows.Close()
+
+	var tags []*Tag
+	for rows.Next() {
+		var tag Tag
+		err := rows.Scan(
+			&tag.ID, &tag.Name, &tag.Color, &tag.Description,
+			&tag.TeamID, &tag.CreatedAt, &tag.CreatedBy,
+		)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow tag")
+		}
+		tags = append(tags, &tag)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow tags")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_tags", "success", time.Since(start))
+	return tags, nil
 }
 
 func (r *PostgresRepository) ListTags(ctx context.Context, teamID string) ([]*Tag, error) {
-	// Implementation for listing tags
-	return []*Tag{}, nil
+	start := time.Now()
+
+	query := `
+		SELECT id, name, color, description, team_id, created_at, created_by
+		FROM workflow_tags
+		WHERE team_id = $1
+		ORDER BY name`
+
+	rows, err := r.db.Query(ctx, query, teamID)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_tags", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list workflow tags")
+	}
+	defer rows.Close()
+
+	var tags []*Tag
+	for rows.Next() {
+		var tag Tag
+		err := rows.Scan(
+			&tag.ID, &tag.Name, &tag.Color, &tag.Description,
+			&tag.TeamID, &tag.CreatedAt, &tag.CreatedBy,
+		)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow tag")
+		}
+		tags = append(tags, &tag)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow tags")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_tags", "success", time.Since(start))
+	return tags, nil
 }

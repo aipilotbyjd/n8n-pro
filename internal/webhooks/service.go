@@ -21,6 +21,8 @@ import (
 	"n8n-pro/pkg/metrics"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Webhook represents a webhook in the system
@@ -484,40 +486,257 @@ func (s *Service) createExecutionRecord(ctx context.Context, execution *WebhookE
 	}
 }
 
-// Repository implementation (stub methods)
+// Repository implementation
 
 func (r *PostgresRepository) CreateWebhook(ctx context.Context, webhook *Webhook) error {
-	// Stub implementation
-	return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "not implemented")
+	query := `
+		INSERT INTO webhooks (
+			id, workflow_id, node_id, team_id, path, method, enabled,
+			secret_token, headers, settings, trigger_count,
+			created_at, updated_at, created_by
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		)`
+
+	// Serialize JSON fields
+	headersJSON, _ := json.Marshal(webhook.Headers)
+	settingsJSON, _ := json.Marshal(webhook.Settings)
+
+	_, err := r.db.Exec(ctx, query,
+		webhook.ID, webhook.WorkflowID, webhook.NodeID, webhook.TeamID,
+		webhook.Path, webhook.Method, webhook.Enabled, webhook.SecretToken,
+		headersJSON, settingsJSON, webhook.TriggerCount,
+		webhook.CreatedAt, webhook.UpdatedAt, webhook.CreatedBy,
+	)
+
+	if err != nil {
+		r.logger.Error("Failed to create webhook", "error", err, "webhook_id", webhook.ID)
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create webhook")
+	}
+
+	r.logger.Info("Webhook created successfully", "webhook_id", webhook.ID, "workflow_id", webhook.WorkflowID)
+	return nil
 }
 
 func (r *PostgresRepository) GetWebhookByID(ctx context.Context, id string) (*Webhook, error) {
-	// Stub implementation
-	return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "not implemented")
+	query := `
+		SELECT id, workflow_id, node_id, team_id, path, method, enabled,
+			   secret_token, headers, settings, last_triggered, trigger_count,
+			   created_at, updated_at, created_by
+		FROM webhooks
+		WHERE id = $1`
+
+	var webhook Webhook
+	var headersJSON, settingsJSON []byte
+	var lastTriggered pgtype.Timestamptz
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&webhook.ID, &webhook.WorkflowID, &webhook.NodeID, &webhook.TeamID,
+		&webhook.Path, &webhook.Method, &webhook.Enabled, &webhook.SecretToken,
+		&headersJSON, &settingsJSON, &lastTriggered, &webhook.TriggerCount,
+		&webhook.CreatedAt, &webhook.UpdatedAt, &webhook.CreatedBy,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		r.logger.Error("Failed to get webhook by ID", "error", err, "webhook_id", id)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get webhook")
+	}
+
+	// Deserialize JSON fields
+	if err := json.Unmarshal(headersJSON, &webhook.Headers); err != nil {
+		r.logger.Warn("Failed to deserialize webhook headers", "webhook_id", id, "error", err)
+		webhook.Headers = make(map[string]string)
+	}
+
+	if err := json.Unmarshal(settingsJSON, &webhook.Settings); err != nil {
+		r.logger.Warn("Failed to deserialize webhook settings", "webhook_id", id, "error", err)
+		webhook.Settings = make(map[string]interface{})
+	}
+
+	if lastTriggered.Valid {
+		t := lastTriggered.Time
+		webhook.LastTriggered = &t
+	}
+
+	return &webhook, nil
 }
 
 func (r *PostgresRepository) GetWebhookByPath(ctx context.Context, path string) (*Webhook, error) {
-	// Stub implementation
-	return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "not implemented")
+	query := `
+		SELECT id, workflow_id, node_id, team_id, path, method, enabled,
+			   secret_token, headers, settings, last_triggered, trigger_count,
+			   created_at, updated_at, created_by
+		FROM webhooks
+		WHERE path = $1 AND enabled = true`
+
+	var webhook Webhook
+	var headersJSON, settingsJSON []byte
+	var lastTriggered pgtype.Timestamptz
+
+	err := r.db.QueryRow(ctx, query, path).Scan(
+		&webhook.ID, &webhook.WorkflowID, &webhook.NodeID, &webhook.TeamID,
+		&webhook.Path, &webhook.Method, &webhook.Enabled, &webhook.SecretToken,
+		&headersJSON, &settingsJSON, &lastTriggered, &webhook.TriggerCount,
+		&webhook.CreatedAt, &webhook.UpdatedAt, &webhook.CreatedBy,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		r.logger.Error("Failed to get webhook by path", "error", err, "path", path)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get webhook by path")
+	}
+
+	// Deserialize JSON fields
+	json.Unmarshal(headersJSON, &webhook.Headers)
+	json.Unmarshal(settingsJSON, &webhook.Settings)
+
+	if lastTriggered.Valid {
+		t := lastTriggered.Time
+		webhook.LastTriggered = &t
+	}
+
+	return &webhook, nil
 }
 
 func (r *PostgresRepository) UpdateWebhook(ctx context.Context, webhook *Webhook) error {
-	// Stub implementation
-	return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "not implemented")
+	query := `
+		UPDATE webhooks SET
+			path = $2, method = $3, enabled = $4, secret_token = $5,
+			headers = $6, settings = $7, last_triggered = $8,
+			trigger_count = $9, updated_at = $10
+		WHERE id = $1`
+
+	// Serialize JSON fields
+	headersJSON, _ := json.Marshal(webhook.Headers)
+	settingsJSON, _ := json.Marshal(webhook.Settings)
+
+	result, err := r.db.Exec(ctx, query,
+		webhook.ID, webhook.Path, webhook.Method, webhook.Enabled,
+		webhook.SecretToken, headersJSON, settingsJSON,
+		webhook.LastTriggered, webhook.TriggerCount, webhook.UpdatedAt,
+	)
+
+	if err != nil {
+		r.logger.Error("Failed to update webhook", "error", err, "webhook_id", webhook.ID)
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to update webhook")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("webhook")
+	}
+
+	r.logger.Info("Webhook updated successfully", "webhook_id", webhook.ID)
+	return nil
 }
 
 func (r *PostgresRepository) DeleteWebhook(ctx context.Context, id string) error {
-	// Stub implementation
-	return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "not implemented")
+	query := `DELETE FROM webhooks WHERE id = $1`
+	result, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		r.logger.Error("Failed to delete webhook", "error", err, "webhook_id", id)
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to delete webhook")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("webhook")
+	}
+
+	r.logger.Info("Webhook deleted successfully", "webhook_id", id)
+	return nil
 }
 
 func (r *PostgresRepository) ListWebhooks(ctx context.Context, workflowID string) ([]*Webhook, error) {
-	// Stub implementation
-	return []*Webhook{}, nil
+	query := `
+		SELECT id, workflow_id, node_id, team_id, path, method, enabled,
+			   secret_token, headers, settings, last_triggered, trigger_count,
+			   created_at, updated_at, created_by
+		FROM webhooks
+		WHERE workflow_id = $1
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.Query(ctx, query, workflowID)
+	if err != nil {
+		r.logger.Error("Failed to list webhooks", "error", err, "workflow_id", workflowID)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list webhooks")
+	}
+	defer rows.Close()
+
+	var webhooks []*Webhook
+	for rows.Next() {
+		var webhook Webhook
+		var headersJSON, settingsJSON []byte
+		var lastTriggered pgtype.Timestamptz
+
+		err := rows.Scan(
+			&webhook.ID, &webhook.WorkflowID, &webhook.NodeID, &webhook.TeamID,
+			&webhook.Path, &webhook.Method, &webhook.Enabled, &webhook.SecretToken,
+			&headersJSON, &settingsJSON, &lastTriggered, &webhook.TriggerCount,
+			&webhook.CreatedAt, &webhook.UpdatedAt, &webhook.CreatedBy,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan webhook", "error", err)
+			continue
+		}
+
+		// Deserialize JSON fields
+		json.Unmarshal(headersJSON, &webhook.Headers)
+		json.Unmarshal(settingsJSON, &webhook.Settings)
+
+		if lastTriggered.Valid {
+			t := lastTriggered.Time
+			webhook.LastTriggered = &t
+		}
+
+		webhooks = append(webhooks, &webhook)
+	}
+
+	if err = rows.Err(); err != nil {
+		r.logger.Error("Error iterating webhook rows", "error", err)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate webhooks")
+	}
+
+	return webhooks, nil
 }
 
 func (r *PostgresRepository) CreateExecution(ctx context.Context, execution *WebhookExecution) error {
-	// Stub implementation - in real implementation this would save to database
+	query := `
+		INSERT INTO webhook_executions (
+			id, webhook_id, workflow_id, execution_id, method, path,
+			headers, body, query, ip_address, user_agent, status,
+			response, error, duration, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+		)`
+
+	// Serialize JSON fields
+	headersJSON, _ := json.Marshal(execution.Headers)
+	queryJSON, _ := json.Marshal(execution.Query)
+
+	_, err := r.db.Exec(ctx, query,
+		execution.ID, execution.WebhookID, execution.WorkflowID, execution.ExecutionID,
+		execution.Method, execution.Path, headersJSON, execution.Body, queryJSON,
+		execution.IPAddress, execution.UserAgent, execution.Status,
+		execution.Response, execution.Error, execution.Duration, execution.CreatedAt,
+	)
+
+	if err != nil {
+		r.logger.Error("Failed to create webhook execution", "error", err, "execution_id", execution.ID)
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create webhook execution")
+	}
+
 	r.logger.InfoContext(ctx, "Webhook execution recorded",
 		"execution_id", execution.ID,
 		"webhook_id", execution.WebhookID,
@@ -527,6 +746,53 @@ func (r *PostgresRepository) CreateExecution(ctx context.Context, execution *Web
 }
 
 func (r *PostgresRepository) ListExecutions(ctx context.Context, webhookID string, limit, offset int) ([]*WebhookExecution, error) {
-	// Stub implementation
-	return []*WebhookExecution{}, nil
+	query := `
+		SELECT id, webhook_id, workflow_id, execution_id, method, path,
+			   headers, body, query, ip_address, user_agent, status,
+			   response, error, duration, created_at
+		FROM webhook_executions
+		WHERE webhook_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`
+
+	rows, err := r.db.Query(ctx, query, webhookID, limit, offset)
+	if err != nil {
+		r.logger.Error("Failed to list webhook executions", "error", err, "webhook_id", webhookID)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list webhook executions")
+	}
+	defer rows.Close()
+
+	var executions []*WebhookExecution
+	for rows.Next() {
+		var execution WebhookExecution
+		var headersJSON, queryJSON []byte
+		var executionID *string
+
+		err := rows.Scan(
+			&execution.ID, &execution.WebhookID, &execution.WorkflowID, &executionID,
+			&execution.Method, &execution.Path, &headersJSON, &execution.Body,
+			&queryJSON, &execution.IPAddress, &execution.UserAgent, &execution.Status,
+			&execution.Response, &execution.Error, &execution.Duration, &execution.CreatedAt,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan webhook execution", "error", err)
+			continue
+		}
+
+		// Deserialize JSON fields
+		json.Unmarshal(headersJSON, &execution.Headers)
+		json.Unmarshal(queryJSON, &execution.Query)
+		execution.ExecutionID = executionID
+
+		executions = append(executions, &execution)
+	}
+
+	if err = rows.Err(); err != nil {
+		r.logger.Error("Error iterating webhook execution rows", "error", err)
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate webhook executions")
+	}
+
+	return executions, nil
 }
