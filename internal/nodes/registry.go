@@ -194,6 +194,8 @@ type NodeExecutor interface {
 // NodeFactory is a function that creates a new instance of a node executor
 type NodeFactory func() NodeExecutor
 
+
+
 // RegistryFilter represents filters for node search
 type RegistryFilter struct {
 	Type     NodeType

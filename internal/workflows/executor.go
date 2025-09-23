@@ -9,7 +9,7 @@ import (
 
 	"n8n-pro/internal/common"
 	"n8n-pro/internal/execution/dag"
-	"n8n-pro/internal/nodes/registry"
+	"n8n-pro/pkg/registry"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
@@ -17,14 +17,14 @@ import (
 
 // DefaultExecutor implements the Executor interface
 type DefaultExecutor struct {
-	nodeRegistry *registry.NodeRegistry
+	nodeRegistry *registry.Registry
 	dagEngine    *dag.Engine
 	logger       logger.Logger
 	metrics      *metrics.Metrics
 }
 
 // NewDefaultExecutor creates a new default executor
-func NewDefaultExecutor(nodeRegistry *registry.NodeRegistry) Executor {
+func NewDefaultExecutor(nodeRegistry *registry.Registry) Executor {
 	return &DefaultExecutor{
 		nodeRegistry: nodeRegistry,
 		dagEngine:    dag.NewEngine(logger.New("dag-engine")),
