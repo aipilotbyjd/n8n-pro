@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"n8n-pro/internal/api/middleware"
 	"n8n-pro/internal/teams"
@@ -86,14 +85,14 @@ func (h *TeamsHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	var req CreateTeamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in create team request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	// Get current user from context
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -115,7 +114,7 @@ func (h *TeamsHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	err := h.service.CreateTeam(r.Context(), team)
 	if err != nil {
 		h.logger.Error("Failed to create team", "error", err, "user_id", userCtx.ID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -148,14 +147,14 @@ func (h *TeamsHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) ListTeams(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	teams, err := h.service.ListTeams(r.Context(), userCtx.ID)
 	if err != nil {
 		h.logger.Error("Failed to list teams", "error", err, "user_id", userCtx.ID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -176,20 +175,20 @@ func (h *TeamsHandler) ListTeams(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 	if teamID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID is required"))
+		writeError(w, errors.NewValidationError("Team ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	team, err := h.service.GetTeamByID(r.Context(), teamID)
 	if err != nil {
 		h.logger.Error("Failed to get team", "error", err, "team_id", teamID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -215,20 +214,20 @@ func (h *TeamsHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 	if teamID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID is required"))
+		writeError(w, errors.NewValidationError("Team ID is required"))
 		return
 	}
 
 	var req UpdateTeamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update team request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -236,7 +235,7 @@ func (h *TeamsHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 	team, err := h.service.GetTeamByID(r.Context(), teamID)
 	if err != nil {
 		h.logger.Error("Failed to get team for update", "error", err, "team_id", teamID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -257,7 +256,7 @@ func (h *TeamsHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 	err = h.service.UpdateTeam(r.Context(), team)
 	if err != nil {
 		h.logger.Error("Failed to update team", "error", err, "team_id", teamID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -274,20 +273,20 @@ func (h *TeamsHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) DeleteTeam(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 	if teamID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID is required"))
+		writeError(w, errors.NewValidationError("Team ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	err := h.service.DeleteTeam(r.Context(), teamID)
 	if err != nil {
 		h.logger.Error("Failed to delete team", "error", err, "team_id", teamID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -299,20 +298,20 @@ func (h *TeamsHandler) DeleteTeam(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 	if teamID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID is required"))
+		writeError(w, errors.NewValidationError("Team ID is required"))
 		return
 	}
 
 	var req AddMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in add member request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -326,7 +325,7 @@ func (h *TeamsHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	err := h.service.AddMember(r.Context(), member)
 	if err != nil {
 		h.logger.Error("Failed to add team member", "error", err, "team_id", teamID, "user_id", req.UserID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -346,20 +345,20 @@ func (h *TeamsHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	memberUserID := chi.URLParam(r, "user_id")
 	
 	if teamID == "" || memberUserID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID and User ID are required"))
+		writeError(w, errors.NewValidationError("Team ID and User ID are required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	err := h.service.RemoveMember(r.Context(), teamID, memberUserID)
 	if err != nil {
 		h.logger.Error("Failed to remove team member", "error", err, "team_id", teamID, "user_id", memberUserID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -371,20 +370,20 @@ func (h *TeamsHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 func (h *TeamsHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 	if teamID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Team ID is required"))
+		writeError(w, errors.NewValidationError("Team ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	members, err := h.service.ListMembers(r.Context(), teamID)
 	if err != nil {
 		h.logger.Error("Failed to list team members", "error", err, "team_id", teamID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 

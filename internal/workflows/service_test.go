@@ -275,14 +275,14 @@ func TestWorkflowService(t *testing.T) {
 	}
 
 	service := &Service{
-		repo:        mockRepo,
-		config:      testConfig,
-		logger:      logger.New("test-service"),
-		metrics:     metrics.GetGlobal(),
-		validator:   mockValidator,
-		executor:    mockExecutor,
-		templateSvc: mockTemplateService,
-		credSvc:     mockCredService,
+		Repo:        mockRepo,
+		Config:      testConfig,
+		Logger:      logger.New("test-service"),
+		Metrics:     metrics.GetGlobal(),
+		Validator:   mockValidator,
+		Executor:    mockExecutor,
+		TemplateSvc: mockTemplateService,
+		CredSvc:     mockCredService,
 	}
 
 	ctx := context.Background()
@@ -348,7 +348,7 @@ func TestWorkflowService(t *testing.T) {
 
 func TestConcurrentExecutionLimits(t *testing.T) {
 	mockRepo := &MockWorkflowRepository{}
-	service := &Service{repo: mockRepo}
+	service := &Service{Repo: mockRepo}
 
 	ctx := context.Background()
 	workflowID := uuid.New().String()
@@ -367,7 +367,7 @@ func TestConcurrentExecutionLimits(t *testing.T) {
 
 	t.Run("exceeds limits", func(t *testing.T) {
 		mockRepo = &MockWorkflowRepository{}
-		service.repo = mockRepo
+		service.Repo = mockRepo
 
 		runningExecutions := []*WorkflowExecution{{ID: "1"}, {ID: "2"}}
 		mockRepo.On("ListExecutions", ctx, mock.MatchedBy(func(filter *ExecutionListFilter) bool {

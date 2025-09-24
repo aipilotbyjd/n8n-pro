@@ -85,11 +85,23 @@ func main() {
 	// Initialize services
 	authRepo := auth.NewPostgresRepository(db)
 	authSvc := auth.NewService(authRepo)
+	validator := workflows.NewDefaultValidator(authSvc)
+	
+	// Initialize executor
+	executor := workflows.NewDefaultExecutor()
+	
+	// Initialize template service
+	templateSvc := workflows.NewDefaultTemplateService(workflowRepo, log)
+	
+	// Initialize credential service
+	credSvc := workflows.NewDefaultCredentialService(credentialManager)
+	
+	// Initialize other services
 	teamRepo := teams.NewPostgresRepository(db)
 	teamSvc := teams.NewService(teamRepo)
 	webhookRepo := webhooks.NewPostgresRepository(db)
 	webhookSvc := webhooks.NewService(nil, webhookRepo, db, workflowSvc, nil, log)
-	nodeRegistry := nodes.GetRegistry()
+	nodeRegistry := nodes.NewRegistry(log)
 	jwtSvc := jwt.New(&jwt.Config{
 		Secret:               cfg.Auth.JWTSecret,
 		AccessTokenDuration:  cfg.Auth.JWTExpiration,
@@ -97,6 +109,12 @@ func main() {
 		Issuer:               "n8n-pro",
 		Audience:             "n8n-pro-api",
 	})
+
+	// Update workflow service with real implementations
+	workflowSvc.Validator = validator
+	workflowSvc.Executor = executor
+	workflowSvc.TemplateSvc = templateSvc
+	workflowSvc.CredSvc = credSvc
 
 	// Create HTTP server
 	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, credentialManager, teamSvc, webhookSvc, nodeRegistry, log)

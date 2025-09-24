@@ -12,7 +12,7 @@ import (
 	"n8n-pro/internal/api/handlers"
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/auth/jwt"
-	"n8n-pro/internal/common"
+
 	"n8n-pro/pkg/logger"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +112,7 @@ func TestAuthHandler_Register(t *testing.T) {
 		Issuer:              "n8n-pro-test",
 		Audience:            "n8n-pro-users",
 	}
-	jwtService := jwt.NewService(jwtConfig)
+	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
 	
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
@@ -193,7 +193,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		Issuer:              "n8n-pro-test",
 		Audience:            "n8n-pro-users",
 	}
-	jwtService := jwt.NewService(jwtConfig)
+	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
 	
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
@@ -324,7 +324,7 @@ func TestAuthHandler_ForgotPassword(t *testing.T) {
 		Issuer:              "n8n-pro-test",
 		Audience:            "n8n-pro-users",
 	}
-	jwtService := jwt.NewService(jwtConfig)
+	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
 	
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
@@ -375,7 +375,7 @@ func TestAuthHandler_ResetPassword(t *testing.T) {
 		Issuer:              "n8n-pro-test",
 		Audience:            "n8n-pro-users",
 	}
-	jwtService := jwt.NewService(jwtConfig)
+	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
 	
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)

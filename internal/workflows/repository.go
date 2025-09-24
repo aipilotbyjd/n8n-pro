@@ -764,51 +764,451 @@ func (r *PostgresRepository) DeleteExecution(ctx context.Context, id string) err
 	return nil
 }
 
-// Stub implementations for remaining methods
-// These would be implemented following similar patterns
+// Workflow version management implementations
 
 func (r *PostgresRepository) CreateVersion(ctx context.Context, version *WorkflowVersion) error {
-	// Implementation for creating workflow versions
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflow_versions (
+			id, workflow_id, version, name, description, definition, hash, change_log, is_active,
+			created_at, created_by
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+		)`
+
+	_, err := r.db.Exec(ctx, query,
+		version.ID, version.WorkflowID, version.Version, version.Name,
+		version.Description, version.Definition, version.Hash, version.ChangeLog,
+		version.IsActive, version.CreatedAt, version.CreatedBy,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_versions", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create workflow version")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_versions", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow version created", "version_id", version.ID, "workflow_id", version.WorkflowID, "version", version.Version)
 	return nil
 }
 
 func (r *PostgresRepository) GetVersions(ctx context.Context, workflowID string) ([]*WorkflowVersion, error) {
-	// Implementation for getting workflow versions
-	return []*WorkflowVersion{}, nil
+	start := time.Now()
+
+	query := `
+		SELECT id, workflow_id, version, name, description, definition, hash, change_log, is_active,
+		       created_at, created_by
+		FROM workflow_versions
+		WHERE workflow_id = $1
+		ORDER BY version DESC`
+
+	rows, err := r.db.Query(ctx, query, workflowID)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_versions", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow versions")
+	}
+	defer rows.Close()
+
+	var versions []*WorkflowVersion
+	for rows.Next() {
+		version := &WorkflowVersion{}
+		err := rows.Scan(
+			&version.ID, &version.WorkflowID, &version.Version, &version.Name,
+			&version.Description, &version.Definition, &version.Hash, &version.ChangeLog,
+			&version.IsActive, &version.CreatedAt, &version.CreatedBy,
+		)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow version")
+		}
+		versions = append(versions, version)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow versions")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_versions", "success", time.Since(start))
+	return versions, nil
 }
 
-func (r *PostgresRepository) GetVersionByNumber(ctx context.Context, workflowID string, version int) (*WorkflowVersion, error) {
-	// Implementation for getting specific version
-	return nil, nil
+func (r *PostgresRepository) GetVersionByNumber(ctx context.Context, workflowID string, versionNum int) (*WorkflowVersion, error) {
+	start := time.Now()
+
+	query := `
+		SELECT id, workflow_id, version, name, description, definition, hash, change_log, is_active,
+		       created_at, created_by
+		FROM workflow_versions
+		WHERE workflow_id = $1 AND version = $2`
+
+	version := &WorkflowVersion{}
+	err := r.db.QueryRow(ctx, query, workflowID, versionNum).Scan(
+		&version.ID, &version.WorkflowID, &version.Version, &version.Name,
+		&version.Description, &version.Definition, &version.Hash, &version.ChangeLog,
+		&version.IsActive, &version.CreatedAt, &version.CreatedBy,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			r.metrics.RecordDBQuery("get", "workflow_versions", "not_found", time.Since(start))
+			return nil, nil
+		}
+		r.metrics.RecordDBQuery("get", "workflow_versions", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow version")
+	}
+
+	r.metrics.RecordDBQuery("get", "workflow_versions", "success", time.Since(start))
+	return version, nil
 }
+
+// Workflow template management implementations
 
 func (r *PostgresRepository) CreateTemplate(ctx context.Context, template *WorkflowTemplate) error {
-	// Implementation for creating templates
+	start := time.Now()
+
+	// Serialize complex fields to JSON
+	tagsJSON, err := json.Marshal(template.Tags)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize tags")
+	}
+
+	requirementsJSON, err := json.Marshal(template.Requirements)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize requirements")
+	}
+
+	metadataJSON, err := json.Marshal(template.Metadata)
+	if err != nil {
+		return errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize metadata")
+	}
+
+	query := `
+		INSERT INTO workflow_templates (
+			id, name, description, category, tags, definition, preview, usage_count,
+			rating, is_public, author_id, author_name, team_id, requirements, metadata,
+			created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+		)`
+
+	_, err = r.db.Exec(ctx, query,
+		template.ID, template.Name, template.Description, template.Category,
+		tagsJSON, template.Definition, template.Preview, template.UsageCount,
+		template.Rating, template.IsPublic, template.AuthorID, template.AuthorName,
+		template.TeamID, requirementsJSON, metadataJSON, template.CreatedAt, template.UpdatedAt,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_templates", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create workflow template")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_templates", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow template created", "template_id", template.ID, "name", template.Name)
 	return nil
 }
 
 func (r *PostgresRepository) GetTemplateByID(ctx context.Context, id string) (*WorkflowTemplate, error) {
-	// Implementation for getting templates
-	return nil, nil
+	start := time.Now()
+
+	query := `
+		SELECT id, name, description, category, tags, definition, preview, usage_count,
+		       rating, is_public, author_id, author_name, team_id, requirements, metadata,
+		       created_at, updated_at, deleted_at
+		FROM workflow_templates
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	var template WorkflowTemplate
+	var tagsJSON, requirementsJSON, metadataJSON []byte
+	var teamID, deletedAt *string
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&template.ID, &template.Name, &template.Description, &template.Category,
+		&tagsJSON, &template.Definition, &template.Preview, &template.UsageCount,
+		&template.Rating, &template.IsPublic, &template.AuthorID, &template.AuthorName,
+		&teamID, &requirementsJSON, &metadataJSON,
+		&template.CreatedAt, &template.UpdatedAt, &deletedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			r.metrics.RecordDBQuery("get", "workflow_templates", "not_found", time.Since(start))
+			return nil, nil
+		}
+		r.metrics.RecordDBQuery("get", "workflow_templates", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow template")
+	}
+
+	// Deserialize JSON fields
+	if err := json.Unmarshal(tagsJSON, &template.Tags); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize tags")
+	}
+
+	if err := json.Unmarshal(requirementsJSON, &template.Requirements); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize requirements")
+	}
+
+	if err := json.Unmarshal(metadataJSON, &template.Metadata); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize metadata")
+	}
+
+	// Handle nullable fields
+	template.TeamID = teamID
+
+	if deletedAt != nil && *deletedAt != "" {
+		deletedTime, err := time.Parse(time.RFC3339, *deletedAt)
+		if err == nil {
+			template.DeletedAt = &deletedTime
+		}
+	}
+
+	r.metrics.RecordDBQuery("get", "workflow_templates", "success", time.Since(start))
+	return &template, nil
 }
 
 func (r *PostgresRepository) ListTemplates(ctx context.Context, filter *TemplateListFilter) ([]*WorkflowTemplate, int64, error) {
-	// Implementation for listing templates
-	return []*WorkflowTemplate{}, 0, nil
+	start := time.Now()
+
+	// Build query conditions
+	conditions := []string{"deleted_at IS NULL"}
+	args := []interface{}{}
+	argIndex := 1
+
+	if filter.Category != nil {
+		conditions = append(conditions, fmt.Sprintf("category = $%d", argIndex))
+		args = append(args, *filter.Category)
+		argIndex++
+	}
+
+	if filter.IsPublic != nil {
+		conditions = append(conditions, fmt.Sprintf("is_public = $%d", argIndex))
+		args = append(args, *filter.IsPublic)
+		argIndex++
+	}
+
+	if filter.AuthorID != nil {
+		conditions = append(conditions, fmt.Sprintf("author_id = $%d", argIndex))
+		args = append(args, *filter.AuthorID)
+		argIndex++
+	}
+
+	if filter.Search != nil && *filter.Search != "" {
+		conditions = append(conditions, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIndex, argIndex))
+		args = append(args, "%"+*filter.Search+"%")
+		argIndex++
+	}
+
+	if len(filter.Tags) > 0 {
+		// Add condition for templates that have at least one of the specified tags
+		for _, tag := range filter.Tags {
+			conditions = append(conditions, fmt.Sprintf("$%d = ANY(tags)", argIndex))
+			args = append(args, tag)
+			argIndex++
+		}
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+
+	// Count query
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM workflow_templates %s", whereClause)
+	var total int64
+	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		r.metrics.RecordDBQuery("count", "workflow_templates", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to count workflow templates")
+	}
+
+	// Sort by
+	sortBy := filter.SortBy
+	if sortBy == "" {
+		sortBy = "usage_count"
+	}
+	sortOrder := strings.ToUpper(filter.SortOrder)
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	limit := filter.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Data query
+	dataQuery := fmt.Sprintf(`
+		SELECT id, name, description, category, tags, definition, preview, usage_count,
+		       rating, is_public, author_id, author_name, team_id, requirements, metadata,
+		       created_at, updated_at
+		FROM workflow_templates %s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d`, whereClause, sortBy, sortOrder, argIndex, argIndex+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, dataQuery, args...)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_templates", "error", time.Since(start))
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to list workflow templates")
+	}
+	defer rows.Close()
+
+	var templates []*WorkflowTemplate
+	for rows.Next() {
+		template := &WorkflowTemplate{}
+		var tagsJSON, requirementsJSON, metadataJSON []byte
+		var teamID *string
+
+		err := rows.Scan(
+			&template.ID, &template.Name, &template.Description, &template.Category,
+			&tagsJSON, &template.Definition, &template.Preview, &template.UsageCount,
+			&template.Rating, &template.IsPublic, &template.AuthorID, &template.AuthorName,
+			&teamID, &requirementsJSON, &metadataJSON,
+			&template.CreatedAt, &template.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow template")
+		}
+
+		// Deserialize JSON fields
+		json.Unmarshal(tagsJSON, &template.Tags)
+		json.Unmarshal(requirementsJSON, &template.Requirements)
+		json.Unmarshal(metadataJSON, &template.Metadata)
+
+		// Handle nullable fields
+		template.TeamID = teamID
+
+		templates = append(templates, template)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow templates")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_templates", "success", time.Since(start))
+	return templates, total, nil
 }
 
+// Workflow sharing implementations
+
 func (r *PostgresRepository) CreateShare(ctx context.Context, share *WorkflowShare) error {
-	// Implementation for creating shares
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflow_shares (
+			id, workflow_id, share_type, share_with, permission, expires_at,
+			created_at, created_by
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		)`
+
+	_, err := r.db.Exec(ctx, query,
+		share.ID, share.WorkflowID, share.ShareType, share.ShareWith,
+		share.Permission, share.ExpiresAt, share.CreatedAt, share.CreatedBy,
+	)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_shares", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to create workflow share")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_shares", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow share created", "share_id", share.ID, "workflow_id", share.WorkflowID)
 	return nil
 }
 
 func (r *PostgresRepository) GetShares(ctx context.Context, workflowID string) ([]*WorkflowShare, error) {
-	// Implementation for getting shares
-	return []*WorkflowShare{}, nil
+	start := time.Now()
+
+	query := `
+		SELECT id, workflow_id, share_type, share_with, permission, expires_at,
+		       created_at, created_by
+		FROM workflow_shares
+		WHERE workflow_id = $1`
+
+	rows, err := r.db.Query(ctx, query, workflowID)
+	if err != nil {
+		r.metrics.RecordDBQuery("list", "workflow_shares", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow shares")
+	}
+	defer rows.Close()
+
+	var shares []*WorkflowShare
+	for rows.Next() {
+		share := &WorkflowShare{}
+		var shareWith, expiresAt *string
+
+		err := rows.Scan(
+			&share.ID, &share.WorkflowID, &share.ShareType, &shareWith,
+			&share.Permission, &expiresAt, &share.CreatedAt, &share.CreatedBy,
+		)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+				"failed to scan workflow share")
+		}
+
+		// Handle nullable fields
+		share.ShareWith = shareWith
+
+		if expiresAt != nil && *expiresAt != "" {
+			expiresTime, err := time.Parse(time.RFC3339, *expiresAt)
+			if err == nil {
+				share.ExpiresAt = &expiresTime
+			}
+		}
+
+		shares = append(shares, share)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to iterate workflow shares")
+	}
+
+	r.metrics.RecordDBQuery("list", "workflow_shares", "success", time.Since(start))
+	return shares, nil
 }
 
 func (r *PostgresRepository) DeleteShare(ctx context.Context, id string) error {
-	// Implementation for deleting shares
+	start := time.Now()
+
+	query := "DELETE FROM workflow_shares WHERE id = $1"
+	result, err := r.db.Exec(ctx, query, id)
+
+	if err != nil {
+		r.metrics.RecordDBQuery("delete", "workflow_shares", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to delete workflow share")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("workflow share")
+	}
+
+	r.metrics.RecordDBQuery("delete", "workflow_shares", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Workflow share deleted", "share_id", id)
 	return nil
 }
 
@@ -1137,4 +1537,95 @@ func (r *PostgresRepository) ListTags(ctx context.Context, teamID string) ([]*Ta
 
 	r.metrics.RecordDBQuery("list", "workflow_tags", "success", time.Since(start))
 	return tags, nil
+}
+
+// AddTagToWorkflow adds a tag to a workflow
+func (r *PostgresRepository) AddTagToWorkflow(ctx context.Context, workflowID, tagID, userID string) error {
+	start := time.Now()
+
+	query := `
+		INSERT INTO workflow_tag_associations (workflow_id, tag_id, created_by)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (workflow_id, tag_id) DO NOTHING`
+
+	_, err := r.db.Exec(ctx, query, workflowID, tagID, userID)
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_tag_associations", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to add tag to workflow")
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_tag_associations", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Tag added to workflow", "workflow_id", workflowID, "tag_id", tagID)
+	return nil
+}
+
+// RemoveTagFromWorkflow removes a tag from a workflow
+func (r *PostgresRepository) RemoveTagFromWorkflow(ctx context.Context, workflowID, tagID string) error {
+	start := time.Now()
+
+	query := "DELETE FROM workflow_tag_associations WHERE workflow_id = $1 AND tag_id = $2"
+
+	result, err := r.db.Exec(ctx, query, workflowID, tagID)
+	if err != nil {
+		r.metrics.RecordDBQuery("delete", "workflow_tag_associations", "error", time.Since(start))
+		return errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to remove tag from workflow")
+	}
+
+	if result.RowsAffected() == 0 {
+		return errors.NotFoundError("tag association")
+	}
+
+	r.metrics.RecordDBQuery("delete", "workflow_tag_associations", "success", time.Since(start))
+	r.logger.InfoContext(ctx, "Tag removed from workflow", "workflow_id", workflowID, "tag_id", tagID)
+	return nil
+}
+
+// CreateTagIfNotExists creates a tag if it doesn't exist and returns the tag
+func (r *PostgresRepository) CreateTagIfNotExists(ctx context.Context, name, color, description, teamID, userID string) (*Tag, error) {
+	start := time.Now()
+
+	// First, try to get the existing tag
+	query := `
+		SELECT id, name, color, description, team_id, created_at, created_by
+		FROM workflow_tags
+		WHERE name = $1 AND team_id = $2`
+
+	var tag Tag
+	err := r.db.QueryRow(ctx, query, name, teamID).Scan(
+		&tag.ID, &tag.Name, &tag.Color, &tag.Description,
+		&tag.TeamID, &tag.CreatedAt, &tag.CreatedBy,
+	)
+
+	if err == nil {
+		// Tag already exists, return it
+		r.metrics.RecordDBQuery("get", "workflow_tags", "success", time.Since(start))
+		return &tag, nil
+	} else if err != pgx.ErrNoRows {
+		// Some other error occurred
+		r.metrics.RecordDBQuery("get", "workflow_tags", "error", time.Since(start))
+		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery,
+			"failed to get workflow tag")
+	}
+
+	// Tag doesn't exist, create it
+	newTag := &Tag{
+		ID:          GenerateID(),
+		Name:        name,
+		Color:       color,
+		Description: description,
+		TeamID:      teamID,
+		CreatedAt:   time.Now(),
+		CreatedBy:   userID,
+	}
+
+	err = r.CreateTag(ctx, newTag)
+	if err != nil {
+		r.metrics.RecordDBQuery("create", "workflow_tags", "error", time.Since(start))
+		return nil, err
+	}
+
+	r.metrics.RecordDBQuery("create", "workflow_tags", "success", time.Since(start))
+	return newTag, nil
 }

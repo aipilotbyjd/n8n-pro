@@ -95,13 +95,13 @@ func (h *WebhooksHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) 
 	var req CreateWebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in create webhook request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -130,7 +130,7 @@ func (h *WebhooksHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) 
 	err := h.service.CreateWebhook(r.Context(), webhook)
 	if err != nil {
 		h.logger.Error("Failed to create webhook", "error", err, "user_id", userCtx.ID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -148,20 +148,20 @@ func (h *WebhooksHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) 
 func (h *WebhooksHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	workflowID := r.URL.Query().Get("workflow_id")
 	if workflowID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("workflow_id parameter is required"))
+		writeError(w, errors.NewValidationError("workflow_id parameter is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	webhooks, err := h.service.ListWebhooks(r.Context(), workflowID)
 	if err != nil {
 		h.logger.Error("Failed to list webhooks", "error", err, "workflow_id", workflowID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -181,20 +181,20 @@ func (h *WebhooksHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 func (h *WebhooksHandler) GetWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "id")
 	if webhookID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Webhook ID is required"))
+		writeError(w, errors.NewValidationError("Webhook ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	webhook, err := h.service.GetWebhookByID(r.Context(), webhookID)
 	if err != nil {
 		h.logger.Error("Failed to get webhook", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -209,20 +209,20 @@ func (h *WebhooksHandler) GetWebhook(w http.ResponseWriter, r *http.Request) {
 func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "id")
 	if webhookID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Webhook ID is required"))
+		writeError(w, errors.NewValidationError("Webhook ID is required"))
 		return
 	}
 
 	var req UpdateWebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update webhook request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -230,7 +230,7 @@ func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) 
 	webhook, err := h.service.GetWebhookByID(r.Context(), webhookID)
 	if err != nil {
 		h.logger.Error("Failed to get webhook for update", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -257,7 +257,7 @@ func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) 
 	err = h.service.UpdateWebhook(r.Context(), webhook)
 	if err != nil {
 		h.logger.Error("Failed to update webhook", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -274,20 +274,20 @@ func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) 
 func (h *WebhooksHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "id")
 	if webhookID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Webhook ID is required"))
+		writeError(w, errors.NewValidationError("Webhook ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	err := h.service.DeleteWebhook(r.Context(), webhookID)
 	if err != nil {
 		h.logger.Error("Failed to delete webhook", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -299,7 +299,7 @@ func (h *WebhooksHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) 
 func (h *WebhooksHandler) GetWebhookExecutions(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "id")
 	if webhookID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Webhook ID is required"))
+		writeError(w, errors.NewValidationError("Webhook ID is required"))
 		return
 	}
 
@@ -323,14 +323,14 @@ func (h *WebhooksHandler) GetWebhookExecutions(w http.ResponseWriter, r *http.Re
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	executions, err := h.service.ListExecutions(r.Context(), webhookID, limit, offset)
 	if err != nil {
 		h.logger.Error("Failed to get webhook executions", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 
@@ -352,13 +352,13 @@ func (h *WebhooksHandler) GetWebhookExecutions(w http.ResponseWriter, r *http.Re
 func (h *WebhooksHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "id")
 	if webhookID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Webhook ID is required"))
+		writeError(w, errors.NewValidationError("Webhook ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -366,7 +366,7 @@ func (h *WebhooksHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 	webhook, err := h.service.GetWebhookByID(r.Context(), webhookID)
 	if err != nil {
 		h.logger.Error("Failed to get webhook for test", "error", err, "webhook_id", webhookID)
-		errors.WriteErrorResponse(w, err)
+		writeError(w, err)
 		return
 	}
 

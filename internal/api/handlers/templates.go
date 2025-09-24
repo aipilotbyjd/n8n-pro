@@ -152,14 +152,14 @@ func (h *TemplatesHandler) ListTemplates(w http.ResponseWriter, r *http.Request)
 func (h *TemplatesHandler) GetTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID := chi.URLParam(r, "id")
 	if templateID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Template ID is required"))
+		writeError(w, errors.NewValidationError("Template ID is required"))
 		return
 	}
 
 	// Mock template data (in a real implementation, this would come from the database)
 	template := h.getMockTemplate(templateID)
 	if template == nil {
-		errors.WriteErrorResponse(w, errors.NewNotFoundError("Template not found"))
+		writeError(w, errors.NewNotFoundError("Template not found"))
 		return
 	}
 
@@ -174,13 +174,13 @@ func (h *TemplatesHandler) CreateTemplate(w http.ResponseWriter, r *http.Request
 	var req CreateTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in create template request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -219,27 +219,27 @@ func (h *TemplatesHandler) CreateTemplate(w http.ResponseWriter, r *http.Request
 func (h *TemplatesHandler) UpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID := chi.URLParam(r, "id")
 	if templateID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Template ID is required"))
+		writeError(w, errors.NewValidationError("Template ID is required"))
 		return
 	}
 
 	var req UpdateTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update template request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	// Get existing template (mock)
 	template := h.getMockTemplate(templateID)
 	if template == nil {
-		errors.WriteErrorResponse(w, errors.NewNotFoundError("Template not found"))
+		writeError(w, errors.NewNotFoundError("Template not found"))
 		return
 	}
 
@@ -274,13 +274,13 @@ func (h *TemplatesHandler) UpdateTemplate(w http.ResponseWriter, r *http.Request
 func (h *TemplatesHandler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID := chi.URLParam(r, "id")
 	if templateID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Template ID is required"))
+		writeError(w, errors.NewValidationError("Template ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -293,20 +293,20 @@ func (h *TemplatesHandler) DeleteTemplate(w http.ResponseWriter, r *http.Request
 func (h *TemplatesHandler) UseTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID := chi.URLParam(r, "id")
 	if templateID == "" {
-		errors.WriteErrorResponse(w, errors.NewValidationError("Template ID is required"))
+		writeError(w, errors.NewValidationError("Template ID is required"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	// Get template
 	template := h.getMockTemplate(templateID)
 	if template == nil {
-		errors.WriteErrorResponse(w, errors.NewNotFoundError("Template not found"))
+		writeError(w, errors.NewNotFoundError("Template not found"))
 		return
 	}
 

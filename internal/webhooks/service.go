@@ -121,6 +121,41 @@ func NewService(
 	}
 }
 
+// CreateWebhook creates a new webhook
+func (s *Service) CreateWebhook(ctx context.Context, webhook *Webhook) error {
+	webhook.CreatedAt = time.Now()
+	webhook.UpdatedAt = time.Now()
+	
+	return s.repo.CreateWebhook(ctx, webhook)
+}
+
+// GetWebhookByID retrieves a webhook by its ID
+func (s *Service) GetWebhookByID(ctx context.Context, id string) (*Webhook, error) {
+	return s.repo.GetWebhookByID(ctx, id)
+}
+
+// UpdateWebhook updates an existing webhook
+func (s *Service) UpdateWebhook(ctx context.Context, webhook *Webhook) error {
+	webhook.UpdatedAt = time.Now()
+	
+	return s.repo.UpdateWebhook(ctx, webhook)
+}
+
+// DeleteWebhook deletes a webhook by ID
+func (s *Service) DeleteWebhook(ctx context.Context, id string) error {
+	return s.repo.DeleteWebhook(ctx, id)
+}
+
+// ListWebhooks lists webhooks for a workflow
+func (s *Service) ListWebhooks(ctx context.Context, workflowID string) ([]*Webhook, error) {
+	return s.repo.ListWebhooks(ctx, workflowID)
+}
+
+// ListExecutions lists executions for a webhook
+func (s *Service) ListExecutions(ctx context.Context, webhookID string, limit, offset int) ([]*WebhookExecution, error) {
+	return s.repo.ListExecutions(ctx, webhookID, limit, offset)
+}
+
 // HandleWebhook handles incoming webhook requests
 func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()

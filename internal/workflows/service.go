@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"n8n-pro/internal/config"
+	"n8n-pro/internal/credentials"
 	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
@@ -18,15 +19,15 @@ import (
 
 // Service represents the workflow service
 type Service struct {
-	repo        Repository
-	db          *postgres.DB
-	config      *config.Config
-	logger      logger.Logger
-	metrics     *metrics.Metrics
-	validator   Validator
-	executor    Executor
-	templateSvc TemplateService
-	credSvc     CredentialService
+	Repo        Repository
+	DB          *postgres.DB
+	Config      *config.Config
+	Logger      logger.Logger
+	Metrics     *metrics.Metrics
+	Validator   Validator
+	Executor    Executor
+	TemplateSvc TemplateService
+	CredSvc     CredentialService
 }
 
 // Repository defines the workflow data access interface
@@ -94,10 +95,169 @@ type TemplateService interface {
 	InstantiateTemplate(ctx context.Context, templateID, teamID, ownerID string) (*Workflow, error)
 }
 
+// DefaultTemplateService implements the TemplateService interface
+type DefaultTemplateService struct {
+	repo   Repository
+	logger logger.Logger
+}
+
+// NewDefaultTemplateService creates a new default template service
+func NewDefaultTemplateService(repo Repository, logger logger.Logger) TemplateService {
+	return &DefaultTemplateService{
+		repo:   repo,
+		logger: logger,
+	}
+}
+
+func (s *DefaultTemplateService) CreateFromWorkflow(ctx context.Context, workflowID string, template *WorkflowTemplate) (*WorkflowTemplate, error) {
+	// Get the workflow to use as template source
+	workflow, err := s.repo.GetByIDWithDetails(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	
+	if workflow == nil {
+		return nil, errors.NotFoundError("workflow")
+	}
+
+	// Set template fields if not provided
+	if template.ID == "" {
+		template.ID = GenerateID()
+	}
+	if template.Name == "" {
+		template.Name = workflow.Name + " Template"
+	}
+	if template.Description == "" {
+		template.Description = workflow.Description
+	}
+
+	// Serialize workflow as template definition
+	definition, err := json.Marshal(workflow)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to serialize workflow as template")
+	}
+	template.Definition = string(definition)
+
+	now := time.Now()
+	template.CreatedAt = now
+	template.UpdatedAt = now
+
+	// Save the template
+	err = s.repo.CreateTemplate(ctx, template)
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.InfoContext(ctx, "Template created from workflow", 
+		"template_id", template.ID, 
+		"workflow_id", workflowID)
+
+	return template, nil
+}
+
+func (s *DefaultTemplateService) InstantiateTemplate(ctx context.Context, templateID, teamID, ownerID string) (*Workflow, error) {
+	template, err := s.repo.GetTemplateByID(ctx, templateID)
+	if err != nil {
+		return nil, err
+	}
+	
+	if template == nil {
+		return nil, errors.NotFoundError("template")
+	}
+
+	// Parse definition to create new workflow
+	var workflow Workflow
+	if err := json.Unmarshal([]byte(template.Definition), &workflow); err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal,
+			"failed to deserialize template definition")
+	}
+
+	// Set new workflow fields
+	newWorkflow := &Workflow{
+		ID:          GenerateID(),
+		Name:        workflow.Name,
+		Description: workflow.Description,
+		Status:      WorkflowStatusDraft,
+		TeamID:      teamID,
+		OwnerID:     ownerID,
+		Version:     1,
+		IsTemplate:  false,
+		TemplateID:  &templateID,
+		Nodes:       workflow.Nodes,
+		Connections: workflow.Connections,
+		Variables:   workflow.Variables,
+		Triggers:    workflow.Triggers,
+		Config:      workflow.Config,
+		Tags:        workflow.Tags,
+		Metadata:    make(map[string]interface{}),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		CreatedBy:   ownerID,
+		UpdatedBy:   ownerID,
+	}
+	
+	// Update node IDs to avoid conflicts
+	for i := range newWorkflow.Nodes {
+		newWorkflow.Nodes[i].ID = GenerateID()
+	}
+
+	err = s.repo.Create(ctx, newWorkflow)
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.InfoContext(ctx, "Workflow created from template", 
+		"new_workflow_id", newWorkflow.ID, 
+		"template_id", templateID)
+
+	return newWorkflow, nil
+}
+
 // CredentialService defines the credential service interface
 type CredentialService interface {
 	ValidateCredentials(ctx context.Context, credentialIDs []string, teamID string) error
 	GetCredentialsByIDs(ctx context.Context, credentialIDs []string) (map[string]interface{}, error)
+}
+
+// DefaultCredentialService implements the CredentialService interface
+type DefaultCredentialService struct {
+	manager *credentials.Manager
+}
+
+// NewDefaultCredentialService creates a new default credential service
+func NewDefaultCredentialService(manager *credentials.Manager) CredentialService {
+	return &DefaultCredentialService{
+		manager: manager,
+	}
+}
+
+func (s *DefaultCredentialService) ValidateCredentials(ctx context.Context, credentialIDs []string, teamID string) error {
+	// For each credential ID, check if it exists and belongs to the team
+	for _, credID := range credentialIDs {
+		cred, err := s.manager.GetByID(ctx, "temp_user_id", teamID, credID) // Use a placeholder user ID since we only need to validate team access
+		if err != nil {
+			return err
+		}
+		if cred == nil {
+			return errors.NotFoundError("credential " + credID)
+		}
+	}
+	return nil
+}
+
+func (s *DefaultCredentialService) GetCredentialsByIDs(ctx context.Context, credentialIDs []string) (map[string]interface{}, error) {
+	credentialsMap := make(map[string]interface{})
+	
+	for _, credID := range credentialIDs {
+		credData, err := s.manager.GetDecryptedData(ctx, credID, "temp_user_id", "temp_team_id") // Placeholder IDs
+		if err != nil {
+			return nil, err
+		}
+		credentialsMap[credID] = credData
+	}
+	
+	return credentialsMap, nil
 }
 
 // Additional filter types
@@ -147,33 +307,33 @@ func NewService(
 	credSvc CredentialService,
 ) *Service {
 	return &Service{
-		repo:        repo,
-		db:          db,
-		config:      config,
-		logger:      logger.New("workflow-service"),
-		metrics:     metrics.GetGlobal(),
-		validator:   validator,
-		executor:    executor,
-		templateSvc: templateSvc,
-		credSvc:     credSvc,
+		Repo:        repo,
+		DB:          db,
+		Config:      config,
+		Logger:      logger.New("workflow-service"),
+		Metrics:     metrics.GetGlobal(),
+		Validator:   validator,
+		Executor:    executor,
+		TemplateSvc: templateSvc,
+		CredSvc:     credSvc,
 	}
 }
 
 // CreateWorkflow creates a new workflow
 func (s *Service) Create(ctx context.Context, workflow *Workflow, userID string) (*Workflow, error) {
-	s.logger.InfoContext(ctx, "Creating new workflow",
+	s.Logger.InfoContext(ctx, "Creating new workflow",
 		"workflow_name", workflow.Name,
 		"team_id", workflow.TeamID,
 		"user_id", userID,
 	)
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, "", "create"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, "", "create"); err != nil {
 		return nil, err
 	}
 
 	// Validate workflow
-	if err := s.validator.ValidateWorkflow(ctx, workflow); err != nil {
+	if err := s.Validator.ValidateWorkflow(ctx, workflow); err != nil {
 		return nil, err
 	}
 
@@ -185,7 +345,7 @@ func (s *Service) Create(ctx context.Context, workflow *Workflow, userID string)
 		}
 	}
 	if len(credentialIDs) > 0 {
-		if err := s.credSvc.ValidateCredentials(ctx, credentialIDs, workflow.TeamID); err != nil {
+		if err := s.CredSvc.ValidateCredentials(ctx, credentialIDs, workflow.TeamID); err != nil {
 			return nil, err
 		}
 	}
@@ -201,8 +361,8 @@ func (s *Service) Create(ctx context.Context, workflow *Workflow, userID string)
 	workflow.UpdatedBy = userID
 
 	// Create in transaction
-	err := s.db.RunInTransaction(ctx, func(tx pgx.Tx) error {
-		if err := s.repo.Create(ctx, workflow); err != nil {
+	err := s.DB.RunInTransaction(ctx, func(tx pgx.Tx) error {
+		if err := s.Repo.Create(ctx, workflow); err != nil {
 			return err
 		}
 
@@ -227,19 +387,19 @@ func (s *Service) Create(ctx context.Context, workflow *Workflow, userID string)
 		version.Definition = string(definition)
 		version.Hash = utils.GenerateHash(string(definition))
 
-		return s.repo.CreateVersion(ctx, version)
+		return s.Repo.CreateVersion(ctx, version)
 	})
 
 	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to create workflow",
+		s.Logger.ErrorContext(ctx, "Failed to create workflow",
 			"error", err,
 			"workflow_name", workflow.Name,
 		)
 		return nil, err
 	}
 
-	s.metrics.RecordDBQuery("create", "workflows", "success", time.Since(now))
-	s.logger.InfoContext(ctx, "Workflow created successfully",
+	s.Metrics.RecordDBQuery("create", "workflows", "success", time.Since(now))
+	s.Logger.InfoContext(ctx, "Workflow created successfully",
 		"workflow_id", workflow.ID,
 		"workflow_name", workflow.Name,
 	)
@@ -251,9 +411,9 @@ func (s *Service) Create(ctx context.Context, workflow *Workflow, userID string)
 func (s *Service) GetByID(ctx context.Context, id string, userID string) (*Workflow, error) {
 	start := time.Now()
 
-	workflow, err := s.repo.GetByIDWithDetails(ctx, id)
+	workflow, err := s.Repo.GetByIDWithDetails(ctx, id)
 	if err != nil {
-		s.metrics.RecordDBQuery("get", "workflows", "error", time.Since(start))
+		s.Metrics.RecordDBQuery("get", "workflows", "error", time.Since(start))
 		return nil, err
 	}
 
@@ -262,29 +422,29 @@ func (s *Service) GetByID(ctx context.Context, id string, userID string) (*Workf
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, id, "read"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, id, "read"); err != nil {
 		return nil, err
 	}
 
-	s.metrics.RecordDBQuery("get", "workflows", "success", time.Since(start))
+	s.Metrics.RecordDBQuery("get", "workflows", "success", time.Since(start))
 	return workflow, nil
 }
 
 // Update updates an existing workflow
 func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string) (*Workflow, error) {
-	s.logger.InfoContext(ctx, "Updating workflow",
+	s.Logger.InfoContext(ctx, "Updating workflow",
 		"workflow_id", workflow.ID,
 		"workflow_name", workflow.Name,
 		"user_id", userID,
 	)
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflow.ID, "update"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflow.ID, "update"); err != nil {
 		return nil, err
 	}
 
 	// Get existing workflow
-	existing, err := s.repo.GetByID(ctx, workflow.ID)
+	existing, err := s.Repo.GetByID(ctx, workflow.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +453,7 @@ func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string)
 	}
 
 	// Validate workflow
-	if err := s.validator.ValidateWorkflow(ctx, workflow); err != nil {
+	if err := s.Validator.ValidateWorkflow(ctx, workflow); err != nil {
 		return nil, err
 	}
 
@@ -312,8 +472,8 @@ func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string)
 	}
 
 	// Update in transaction
-	err = s.db.RunInTransaction(ctx, func(tx pgx.Tx) error {
-		if err := s.repo.Update(ctx, workflow); err != nil {
+	err = s.DB.RunInTransaction(ctx, func(tx pgx.Tx) error {
+		if err := s.Repo.Update(ctx, workflow); err != nil {
 			return err
 		}
 
@@ -340,7 +500,7 @@ func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string)
 			version.Hash = utils.GenerateHash(string(definition))
 
 			// Deactivate previous versions
-			versions, err := s.repo.GetVersions(ctx, workflow.ID)
+			versions, err := s.Repo.GetVersions(ctx, workflow.ID)
 			if err != nil {
 				return err
 			}
@@ -351,21 +511,21 @@ func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string)
 				}
 			}
 
-			return s.repo.CreateVersion(ctx, version)
+			return s.Repo.CreateVersion(ctx, version)
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to update workflow",
+		s.Logger.ErrorContext(ctx, "Failed to update workflow",
 			"error", err,
 			"workflow_id", workflow.ID,
 		)
 		return nil, err
 	}
 
-	s.logger.InfoContext(ctx, "Workflow updated successfully",
+	s.Logger.InfoContext(ctx, "Workflow updated successfully",
 		"workflow_id", workflow.ID,
 		"version", workflow.Version,
 		"definition_changed", definitionChanged,
@@ -376,13 +536,13 @@ func (s *Service) Update(ctx context.Context, workflow *Workflow, userID string)
 
 // Delete deletes a workflow
 func (s *Service) Delete(ctx context.Context, id string, userID string) error {
-	s.logger.InfoContext(ctx, "Deleting workflow",
+	s.Logger.InfoContext(ctx, "Deleting workflow",
 		"workflow_id", id,
 		"user_id", userID,
 	)
 
 	// Get workflow to validate permissions
-	workflow, err := s.repo.GetByID(ctx, id)
+	workflow, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -391,7 +551,7 @@ func (s *Service) Delete(ctx context.Context, id string, userID string) error {
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, id, "delete"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, id, "delete"); err != nil {
 		return err
 	}
 
@@ -401,7 +561,7 @@ func (s *Service) Delete(ctx context.Context, id string, userID string) error {
 		Status:     &[]ExecutionStatus{ExecutionStatusRunning, ExecutionStatusPending}[0],
 		Limit:      1,
 	}
-	executions, _, err := s.repo.ListExecutions(ctx, filter)
+	executions, _, err := s.Repo.ListExecutions(ctx, filter)
 	if err != nil {
 		return err
 	}
@@ -410,15 +570,15 @@ func (s *Service) Delete(ctx context.Context, id string, userID string) error {
 	}
 
 	// Soft delete
-	if err := s.repo.Delete(ctx, id); err != nil {
-		s.logger.ErrorContext(ctx, "Failed to delete workflow",
+	if err := s.Repo.Delete(ctx, id); err != nil {
+		s.Logger.ErrorContext(ctx, "Failed to delete workflow",
 			"error", err,
 			"workflow_id", id,
 		)
 		return err
 	}
 
-	s.logger.InfoContext(ctx, "Workflow deleted successfully",
+	s.Logger.InfoContext(ctx, "Workflow deleted successfully",
 		"workflow_id", id,
 	)
 
@@ -431,19 +591,19 @@ func (s *Service) List(ctx context.Context, filter *WorkflowListFilter, userID s
 
 	// Validate permissions for team access
 	if filter.TeamID != nil {
-		if err := s.validator.ValidatePermissions(ctx, userID, *filter.TeamID, "", "list"); err != nil {
+		if err := s.Validator.ValidatePermissions(ctx, userID, *filter.TeamID, "", "list"); err != nil {
 			return nil, 0, err
 		}
 	}
 
-	workflows, total, err := s.repo.List(ctx, filter)
+	workflows, total, err := s.Repo.List(ctx, filter)
 	if err != nil {
-		s.metrics.RecordDBQuery("list", "workflows", "error", time.Since(start))
+		s.Metrics.RecordDBQuery("list", "workflows", "error", time.Since(start))
 		return nil, 0, err
 	}
 
-	s.metrics.RecordDBQuery("list", "workflows", "success", time.Since(start))
-	s.logger.InfoContext(ctx, "Listed workflows",
+	s.Metrics.RecordDBQuery("list", "workflows", "success", time.Since(start))
+	s.Logger.InfoContext(ctx, "Listed workflows",
 		"count", len(workflows),
 		"total", total,
 		"filter", filter,
@@ -454,14 +614,14 @@ func (s *Service) List(ctx context.Context, filter *WorkflowListFilter, userID s
 
 // Execute starts a new workflow execution
 func (s *Service) Execute(ctx context.Context, workflowID string, triggerData map[string]interface{}, userID string, mode string) (*WorkflowExecution, error) {
-	s.logger.InfoContext(ctx, "Starting workflow execution",
+	s.Logger.InfoContext(ctx, "Starting workflow execution",
 		"workflow_id", workflowID,
 		"mode", mode,
 		"user_id", userID,
 	)
 
 	// Get workflow
-	workflow, err := s.repo.GetByIDWithDetails(ctx, workflowID)
+	workflow, err := s.Repo.GetByIDWithDetails(ctx, workflowID)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +630,7 @@ func (s *Service) Execute(ctx context.Context, workflowID string, triggerData ma
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, "execute"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, "execute"); err != nil {
 		return nil, err
 	}
 
@@ -490,20 +650,20 @@ func (s *Service) Execute(ctx context.Context, workflowID string, triggerData ma
 	execution.NodesTotal = len(workflow.Nodes)
 
 	// Validate execution
-	if err := s.validator.ValidateExecution(ctx, execution); err != nil {
+	if err := s.Validator.ValidateExecution(ctx, execution); err != nil {
 		return nil, err
 	}
 
 	// Save execution
-	if err := s.repo.CreateExecution(ctx, execution); err != nil {
+	if err := s.Repo.CreateExecution(ctx, execution); err != nil {
 		return nil, err
 	}
 
 	// Start execution asynchronously
 	go func() {
 		execCtx := context.Background() // Use background context for async execution
-		if err := s.executor.Execute(execCtx, execution); err != nil {
-			s.logger.ErrorContext(execCtx, "Execution failed",
+		if err := s.Executor.Execute(execCtx, execution); err != nil {
+			s.Logger.ErrorContext(execCtx, "Execution failed",
 				"execution_id", execution.ID,
 				"workflow_id", workflowID,
 				"error", err,
@@ -514,8 +674,8 @@ func (s *Service) Execute(ctx context.Context, workflowID string, triggerData ma
 	// Update workflow statistics
 	go s.updateWorkflowStats(context.Background(), workflowID)
 
-	s.metrics.RecordWorkflowExecution(workflowID, workflow.Name, string(execution.Status), workflow.TeamID, 0)
-	s.logger.InfoContext(ctx, "Workflow execution started",
+	s.Metrics.RecordWorkflowExecution(workflowID, workflow.Name, string(execution.Status), workflow.TeamID, 0)
+	s.Logger.InfoContext(ctx, "Workflow execution started",
 		"execution_id", execution.ID,
 		"workflow_id", workflowID,
 	)
@@ -525,16 +685,17 @@ func (s *Service) Execute(ctx context.Context, workflowID string, triggerData ma
 
 // GetExecution retrieves a workflow execution
 func (s *Service) GetExecution(ctx context.Context, executionID string, userID string) (*WorkflowExecution, error) {
-	execution, err := s.repo.GetExecutionByID(ctx, executionID)
+		execution, err := s.Repo.GetExecutionByID(ctx, executionID)
 	if err != nil {
+		s.Logger.ErrorContext(ctx, "Failed to get execution",
+			"execution_id", executionID,
+			"error", err,
+		)
 		return nil, err
-	}
-	if execution == nil {
-		return nil, errors.NotFoundError("execution")
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "read"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "read"); err != nil {
 		return nil, err
 	}
 
@@ -543,7 +704,7 @@ func (s *Service) GetExecution(ctx context.Context, executionID string, userID s
 
 // CancelExecution cancels a running workflow execution
 func (s *Service) CancelExecution(ctx context.Context, executionID string, userID string) error {
-	execution, err := s.repo.GetExecutionByID(ctx, executionID)
+	execution, err := s.Repo.GetExecutionByID(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -552,7 +713,7 @@ func (s *Service) CancelExecution(ctx context.Context, executionID string, userI
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "execute"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "execute"); err != nil {
 		return err
 	}
 
@@ -560,12 +721,12 @@ func (s *Service) CancelExecution(ctx context.Context, executionID string, userI
 		return errors.ValidationError(errors.CodeInvalidInput, "execution is not running")
 	}
 
-	return s.executor.Cancel(ctx, executionID)
+	return s.Executor.Cancel(ctx, executionID)
 }
 
 // RetryExecution retries a failed workflow execution
 func (s *Service) RetryExecution(ctx context.Context, executionID string, userID string) (*WorkflowExecution, error) {
-	execution, err := s.repo.GetExecutionByID(ctx, executionID)
+	execution, err := s.Repo.GetExecutionByID(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +735,7 @@ func (s *Service) RetryExecution(ctx context.Context, executionID string, userID
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "execute"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, execution.TeamID, execution.WorkflowID, "execute"); err != nil {
 		return nil, err
 	}
 
@@ -582,7 +743,7 @@ func (s *Service) RetryExecution(ctx context.Context, executionID string, userID
 		return nil, errors.ValidationError(errors.CodeInvalidInput, "can only retry failed executions")
 	}
 
-	return s.executor.Retry(ctx, executionID)
+	return s.Executor.Retry(ctx, executionID)
 }
 
 // ListExecutions retrieves executions with filtering and pagination
@@ -591,37 +752,37 @@ func (s *Service) ListExecutions(ctx context.Context, filter *ExecutionListFilte
 
 	// Validate permissions
 	if filter.TeamID != nil {
-		if err := s.validator.ValidatePermissions(ctx, userID, *filter.TeamID, "", "list"); err != nil {
+		if err := s.Validator.ValidatePermissions(ctx, userID, *filter.TeamID, "", "list"); err != nil {
 			return nil, 0, err
 		}
 	}
 	if filter.WorkflowID != nil {
 		// Get workflow to check team permissions
-		workflow, err := s.repo.GetByID(ctx, *filter.WorkflowID)
+		workflow, err := s.Repo.GetByID(ctx, *filter.WorkflowID)
 		if err != nil {
 			return nil, 0, err
 		}
 		if workflow != nil {
-			if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, *filter.WorkflowID, "read"); err != nil {
+			if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, *filter.WorkflowID, "read"); err != nil {
 				return nil, 0, err
 			}
 		}
 	}
 
-	executions, total, err := s.repo.ListExecutions(ctx, filter)
+	executions, total, err := s.Repo.ListExecutions(ctx, filter)
 	if err != nil {
-		s.metrics.RecordDBQuery("list", "executions", "error", time.Since(start))
+		s.Metrics.RecordDBQuery("list", "executions", "error", time.Since(start))
 		return nil, 0, err
 	}
 
-	s.metrics.RecordDBQuery("list", "executions", "success", time.Since(start))
+	s.Metrics.RecordDBQuery("list", "executions", "success", time.Since(start))
 	return executions, total, nil
 }
 
 // GetWorkflowMetrics retrieves workflow execution metrics
 func (s *Service) GetWorkflowMetrics(ctx context.Context, workflowID string, period string, userID string) (*WorkflowMetrics, error) {
 	// Get workflow to validate permissions
-	workflow, err := s.repo.GetByID(ctx, workflowID)
+	workflow, err := s.Repo.GetByID(ctx, workflowID)
 	if err != nil {
 		return nil, err
 	}
@@ -630,21 +791,21 @@ func (s *Service) GetWorkflowMetrics(ctx context.Context, workflowID string, per
 	}
 
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, "read"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, "read"); err != nil {
 		return nil, err
 	}
 
-	return s.repo.GetWorkflowMetrics(ctx, workflowID, period)
+	return s.Repo.GetWorkflowMetrics(ctx, workflowID, period)
 }
 
 // GetTeamMetrics retrieves team-level workflow metrics
 func (s *Service) GetTeamMetrics(ctx context.Context, teamID string, period string, userID string) (*TeamMetrics, error) {
 	// Validate permissions
-	if err := s.validator.ValidatePermissions(ctx, userID, teamID, "", "read"); err != nil {
+	if err := s.Validator.ValidatePermissions(ctx, userID, teamID, "", "read"); err != nil {
 		return nil, err
 	}
 
-	return s.repo.GetTeamMetrics(ctx, teamID, period)
+	return s.Repo.GetTeamMetrics(ctx, teamID, period)
 }
 
 // Helper methods
@@ -690,7 +851,7 @@ func (s *Service) checkConcurrentExecutionLimits(ctx context.Context, workflowID
 		Limit:      maxConcurrent + 1,
 	}
 
-	executions, _, err := s.repo.ListExecutions(ctx, filter)
+	executions, _, err := s.Repo.ListExecutions(ctx, filter)
 	if err != nil {
 		return err
 	}
@@ -705,9 +866,9 @@ func (s *Service) checkConcurrentExecutionLimits(ctx context.Context, workflowID
 
 // updateWorkflowStats updates workflow execution statistics
 func (s *Service) updateWorkflowStats(ctx context.Context, workflowID string) {
-	summary, err := s.repo.GetExecutionSummary(ctx, workflowID, "all")
+	summary, err := s.Repo.GetExecutionSummary(ctx, workflowID, "all")
 	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to get execution summary",
+		s.Logger.ErrorContext(ctx, "Failed to get execution summary",
 			"workflow_id", workflowID,
 			"error", err,
 		)
@@ -715,7 +876,7 @@ func (s *Service) updateWorkflowStats(ctx context.Context, workflowID string) {
 	}
 
 	// Update workflow with latest stats
-	workflow, err := s.repo.GetByID(ctx, workflowID)
+	workflow, err := s.Repo.GetByID(ctx, workflowID)
 	if err != nil {
 		return
 	}
@@ -727,12 +888,12 @@ func (s *Service) updateWorkflowStats(ctx context.Context, workflowID string) {
 		workflow.LastExecutedAt = summary.LastExecution
 	}
 
-	s.repo.Update(ctx, workflow)
+	s.Repo.Update(ctx, workflow)
 }
 
 // ValidateWorkflowAccess validates if user has access to workflow
 func (s *Service) ValidateWorkflowAccess(ctx context.Context, workflowID, userID, action string) error {
-	workflow, err := s.repo.GetByID(ctx, workflowID)
+	workflow, err := s.Repo.GetByID(ctx, workflowID)
 	if err != nil {
 		return err
 	}
@@ -740,7 +901,7 @@ func (s *Service) ValidateWorkflowAccess(ctx context.Context, workflowID, userID
 		return errors.NotFoundError("workflow")
 	}
 
-	return s.validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, action)
+	return s.Validator.ValidatePermissions(ctx, userID, workflow.TeamID, workflowID, action)
 }
 
 // GetWorkflowVersions retrieves all versions of a workflow
@@ -750,7 +911,7 @@ func (s *Service) GetWorkflowVersions(ctx context.Context, workflowID string, us
 		return nil, err
 	}
 
-	return s.repo.GetVersions(ctx, workflowID)
+	return s.Repo.GetVersions(ctx, workflowID)
 }
 
 // GetWorkflowVersion retrieves a specific version of a workflow
@@ -760,5 +921,5 @@ func (s *Service) GetWorkflowVersion(ctx context.Context, workflowID string, ver
 		return nil, err
 	}
 
-	return s.repo.GetVersionByNumber(ctx, workflowID, version)
+	return s.Repo.GetVersionByNumber(ctx, workflowID, version)
 }

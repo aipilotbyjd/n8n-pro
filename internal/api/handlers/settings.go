@@ -7,8 +7,6 @@ import (
 	"n8n-pro/internal/api/middleware"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
-
-	"github.com/go-chi/chi/v5"
 )
 
 // SettingsHandler handles settings-related HTTP requests
@@ -197,7 +195,7 @@ type UpdateUserSettingsRequest struct {
 func (h *SettingsHandler) GetUserSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -264,13 +262,13 @@ func (h *SettingsHandler) UpdateUserSettings(w http.ResponseWriter, r *http.Requ
 	var req UpdateUserSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update user settings request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -289,14 +287,14 @@ func (h *SettingsHandler) UpdateUserSettings(w http.ResponseWriter, r *http.Requ
 func (h *SettingsHandler) GetSystemSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	// Check if user is admin (in a real implementation)
 	// For now, we'll just check if user has admin role
 	if userCtx.Role != "admin" {
-		errors.WriteErrorResponse(w, errors.NewForbiddenError("Admin access required"))
+		writeError(w, errors.NewForbiddenError("Admin access required"))
 		return
 	}
 
@@ -368,19 +366,19 @@ func (h *SettingsHandler) GetSystemSettings(w http.ResponseWriter, r *http.Reque
 func (h *SettingsHandler) UpdateSystemSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	if userCtx.Role != "admin" {
-		errors.WriteErrorResponse(w, errors.NewForbiddenError("Admin access required"))
+		writeError(w, errors.NewForbiddenError("Admin access required"))
 		return
 	}
 
 	var req map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update system settings request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
@@ -398,7 +396,7 @@ func (h *SettingsHandler) UpdateSystemSettings(w http.ResponseWriter, r *http.Re
 func (h *SettingsHandler) ResetUserSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -416,7 +414,7 @@ func (h *SettingsHandler) ResetUserSettings(w http.ResponseWriter, r *http.Reque
 func (h *SettingsHandler) ExportSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
@@ -439,14 +437,14 @@ func (h *SettingsHandler) ExportSettings(w http.ResponseWriter, r *http.Request)
 func (h *SettingsHandler) ImportSettings(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
-		errors.WriteErrorResponse(w, errors.NewUnauthorizedError("User not authenticated"))
+		writeError(w, errors.NewUnauthorizedError("User not authenticated"))
 		return
 	}
 
 	var settings map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		h.logger.Warn("Invalid JSON in import settings request", "error", err)
-		errors.WriteErrorResponse(w, errors.NewValidationError("Invalid JSON format"))
+		writeError(w, errors.NewValidationError("Invalid JSON format"))
 		return
 	}
 
