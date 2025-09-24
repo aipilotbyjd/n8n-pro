@@ -70,6 +70,16 @@ func (m *MockAuthRepository) GetUserByPasswordResetToken(ctx context.Context, to
 	return args.Get(0).(*User), args.Error(1)
 }
 
+func (m *MockAuthRepository) IncrementFailedLoginAtomic(ctx context.Context, userID string) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
+func (m *MockAuthRepository) UpdateLastLoginAtomic(ctx context.Context, userID, ipAddress string) error {
+	args := m.Called(ctx, userID, ipAddress)
+	return args.Error(0)
+}
+
 func TestAuthService(t *testing.T) {
 	mockRepo := &MockAuthRepository{}
 	service := NewService(mockRepo)

@@ -156,6 +156,7 @@ type WebhookConfig struct {
 	EnableSignatureVerify bool          `json:"enable_signature_verify" yaml:"enable_signature_verify"`
 	SignatureHeader       string        `json:"signature_header" yaml:"signature_header"`
 	SignatureAlgorithm    string        `json:"signature_algorithm" yaml:"signature_algorithm"`
+	SignatureSecret       string        `json:"-" yaml:"-"` // Hidden from output for security
 	RetryAttempts         int           `json:"retry_attempts" yaml:"retry_attempts"`
 	RetryDelay            time.Duration `json:"retry_delay" yaml:"retry_delay"`
 	EnableLogging         bool          `json:"enable_logging" yaml:"enable_logging"`

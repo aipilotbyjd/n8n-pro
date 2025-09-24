@@ -3,6 +3,8 @@ package workflows
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"n8n-pro/internal/auth"
@@ -462,7 +464,9 @@ func (v *DefaultValidator) validateTriggerConfig(triggerType TriggerType, config
 		if config.CronExpression == "" {
 			return errors.NewValidationError("cron expression is required for schedule triggers")
 		}
-		// TODO: Add cron expression validation
+		if err := v.validateCronExpression(config.CronExpression); err != nil {
+			return errors.Wrap(err, errors.ErrorTypeValidation, errors.CodeInvalidInput, "invalid cron expression")
+		}
 	case TriggerTypeWebhook:
 		if config.WebhookMethod != "" {
 			validMethods := map[string]bool{
@@ -486,6 +490,88 @@ func (v *DefaultValidator) validateTriggerConfig(triggerType TriggerType, config
 		}
 		if config.PollInterval <= 0 {
 			return errors.NewValidationError("poll interval must be greater than 0")
+		}
+	}
+
+	return nil
+}
+
+func (v *DefaultValidator) validateCronExpression(cronExpr string) error {
+	fields := strings.Fields(cronExpr)
+	
+	// Standard cron has 5 fields: minute hour day month weekday
+	// Extended cron has 6 fields: second minute hour day month weekday
+	if len(fields) != 5 && len(fields) != 6 {
+		return errors.NewValidationError("cron expression must have 5 or 6 fields")
+	}
+
+	// Define validation patterns for each field
+	patterns := []struct {
+		name    string
+		pattern string
+		min     int
+		max     int
+	}{
+		{"minute", `^(\*|[0-5]?\d|\*/\d+|[0-5]?\d-[0-5]?\d|[0-5]?\d(,[0-5]?\d)*)$`, 0, 59},
+		{"hour", `^(\*|[01]?\d|2[0-3]|\*/\d+|[01]?\d-[01]?\d|2[0-3]|[01]?\d(,[01]?\d|2[0-3])*)$`, 0, 23},
+		{"day", `^(\*|[12]?\d|3[01]|\*/\d+|[12]?\d-[12]?\d|3[01]|[12]?\d(,[12]?\d|3[01])*)$`, 1, 31},
+		{"month", `^(\*|[1-9]|1[0-2]|\*/\d+|[1-9]-[1-9]|1[0-2]|[1-9](,[1-9]|1[0-2])*)$`, 1, 12},
+		{"weekday", `^(\*|[0-6]|\*/\d+|[0-6]-[0-6]|[0-6](,[0-6])*)$`, 0, 6},
+	}
+
+	// If 6 fields, validate seconds field first
+	startIndex := 0
+	if len(fields) == 6 {
+		// Validate seconds field (0-59)
+		secondPattern := `^(\*|[0-5]?\d|\*/\d+|[0-5]?\d-[0-5]?\d|[0-5]?\d(,[0-5]?\d)*)$`
+		if matched, _ := regexp.MatchString(secondPattern, fields[0]); !matched {
+			return errors.NewValidationError("invalid seconds field in cron expression")
+		}
+		startIndex = 1
+	}
+
+	// Validate each field
+	for i, pattern := range patterns {
+		fieldIndex := startIndex + i
+		if fieldIndex >= len(fields) {
+			break
+		}
+		
+		field := fields[fieldIndex]
+		if matched, _ := regexp.MatchString(pattern.pattern, field); !matched {
+			return errors.NewValidationError(fmt.Sprintf("invalid %s field in cron expression: %s", pattern.name, field))
+		}
+
+		// Additional validation for specific ranges
+		if err := v.validateCronFieldRange(field, pattern.name, pattern.min, pattern.max); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (v *DefaultValidator) validateCronFieldRange(field, fieldName string, min, max int) error {
+	// Skip validation for wildcard and complex expressions
+	if field == "*" || strings.Contains(field, "/") || strings.Contains(field, "-") {
+		return nil
+	}
+
+	// Check simple numeric values and comma-separated lists
+	values := strings.Split(field, ",")
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		
+		num, err := strconv.Atoi(value)
+		if err != nil {
+			continue // Skip non-numeric values (might be valid cron syntax)
+		}
+		
+		if num < min || num > max {
+			return errors.NewValidationError(fmt.Sprintf("%s value %d is out of range [%d-%d]", fieldName, num, min, max))
 		}
 	}
 

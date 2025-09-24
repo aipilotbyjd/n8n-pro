@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"n8n-pro/internal/common"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
@@ -14,13 +13,15 @@ import (
 
 // DefaultExecutor implements the Executor interface
 type DefaultExecutor struct {
+	repo    Repository
 	logger  logger.Logger
 	metrics *metrics.Metrics
 }
 
 // NewDefaultExecutor creates a new default executor
-func NewDefaultExecutor() Executor {
+func NewDefaultExecutor(repo Repository) Executor {
 	return &DefaultExecutor{
+		repo:    repo,
 		logger:  logger.New("workflow-executor"),
 		metrics: metrics.GetGlobal(),
 	}
@@ -135,21 +136,31 @@ func (e *DefaultExecutor) Resume(ctx context.Context, executionID string) error 
 func (e *DefaultExecutor) Retry(ctx context.Context, executionID string) (*WorkflowExecution, error) {
 	e.logger.InfoContext(ctx, "Retrying workflow execution", "execution_id", executionID)
 	
-	// Create new execution for retry
+	// Get original execution to copy details
+	originalExecution, err := e.repo.GetExecutionByID(ctx, executionID)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to get original execution for retry")
+	}
+
+	if originalExecution == nil {
+		return nil, errors.NotFoundError("execution")
+	}
+
+	// Create new execution for retry with original details
 	newExecution := &WorkflowExecution{
-		ID:                common.GenerateID(),
-		WorkflowID:        "workflow-id", // Would be retrieved from original execution
-		WorkflowName:      "workflow-name",
-		TeamID:            "team-id",
+		ID:                GenerateID(),
+		WorkflowID:        originalExecution.WorkflowID,
+		WorkflowName:      originalExecution.WorkflowName,
+		TeamID:            originalExecution.TeamID,
 		Status:            ExecutionStatusPending,
 		Mode:              "retry",
 		ParentExecutionID: &executionID,
 		StartTime:         time.Now(),
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
-		InputData:         make(map[string]interface{}),
+		InputData:         originalExecution.InputData,
 		OutputData:        make(map[string]interface{}),
-		TriggerData:       make(map[string]interface{}),
+		TriggerData:       originalExecution.TriggerData,
 		Metadata:          make(map[string]interface{}),
 	}
 	
@@ -206,8 +217,8 @@ func (ec *ExecutionContext) GetVariable(key string) interface{} {
 
 // executeWorkflow executes the actual workflow
 func (e *DefaultExecutor) executeWorkflow(execCtx *ExecutionContext, execution *WorkflowExecution) error {
-	// Get workflow definition (in real implementation, this would come from database)
-	workflow, err := e.getWorkflowDefinition(execCtx.WorkflowID)
+	// Get workflow definition from database
+	workflow, err := e.getWorkflowDefinition(execCtx.Context, execCtx.WorkflowID)
 	if err != nil {
 		return err
 	}
@@ -235,52 +246,15 @@ func (e *DefaultExecutor) executeWorkflow(execCtx *ExecutionContext, execution *
 	}
 }
 
-// getWorkflowDefinition retrieves workflow definition
-func (e *DefaultExecutor) getWorkflowDefinition(workflowID string) (*Workflow, error) {
-	// Mock workflow for demonstration
-	// In real implementation, this would query the database
-	workflow := &Workflow{
-		ID:    workflowID,
-		Name:  "Sample Workflow",
-		Nodes: []Node{
-			{
-				ID:   "start",
-				Name: "Start Node",
-				Type: NodeTypeHTTP,
-				Parameters: map[string]interface{}{
-					"url":    "https://api.example.com/data",
-					"method": "GET",
-				},
-			},
-			{
-				ID:   "process",
-				Name: "Process Data",
-				Type: NodeTypeCode,
-				Code: "return { processed: input.data };",
-				Language: "javascript",
-			},
-		},
-		Connections: []Connection{
-			{
-				ID:         "conn1",
-				SourceNode: "start",
-				TargetNode: "process",
-				Type:       "main",
-				Enabled:    true,
-			},
-		},
-		Variables: []Variable{
-			{
-				ID:    "var1",
-				Key:   "apiKey",
-				Value: "demo-key",
-				Type:  "string",
-			},
-		},
-		Config: WorkflowConfig{
-			ExecutionPolicy: "sequential",
-			Timeout:         300,
-		},
+// getWorkflowDefinition retrieves workflow definition from database
+func (e *DefaultExecutor) getWorkflowDefinition(ctx context.Context, workflowID string) (*Workflow, error) {
+	workflow, err := e.repo.GetByIDWithDetails(ctx, workflowID)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to get workflow for execution")
+	}
+
+	if workflow == nil {
+		return nil, errors.NotFoundError("workflow")
 	}
 
 	return workflow, nil

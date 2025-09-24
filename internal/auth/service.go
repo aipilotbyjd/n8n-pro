@@ -12,6 +12,7 @@ import (
 	"n8n-pro/pkg/logger"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User represents a user in the system
@@ -67,6 +68,8 @@ type Repository interface {
 	ListUsers(ctx context.Context, teamID string) ([]*User, error)
 	GetUserByEmailVerificationToken(ctx context.Context, token string) (*User, error)
 	GetUserByPasswordResetToken(ctx context.Context, token string) (*User, error)
+	IncrementFailedLoginAtomic(ctx context.Context, userID string) error
+	UpdateLastLoginAtomic(ctx context.Context, userID, ipAddress string) error
 }
 
 // Team represents a team in the system
@@ -146,36 +149,15 @@ func (s *Service) ListUsers(ctx context.Context, teamID string) ([]*User, error)
 
 // UpdateLastLogin updates the user's last login information
 func (s *Service) UpdateLastLogin(ctx context.Context, userID, ipAddress string) error {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now()
-	user.LastLoginAt = &now
-	user.LastLoginIP = &ipAddress
-	user.LoginCount++
-	user.FailedLoginAttempts = 0 // Reset failed attempts on successful login
-
-	return s.repo.UpdateUser(ctx, user)
+	// Use atomic update to prevent race conditions
+	return s.repo.UpdateLastLoginAtomic(ctx, userID, ipAddress)
 }
 
 // IncrementFailedLogin increments the failed login attempts and locks account if necessary
+// This method is now atomic to prevent race conditions
 func (s *Service) IncrementFailedLogin(ctx context.Context, userID string) error {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	user.FailedLoginAttempts++
-	
-	// Lock account after 5 failed attempts for 30 minutes
-	if user.FailedLoginAttempts >= 5 {
-		lockUntil := time.Now().Add(30 * time.Minute)
-		user.LockedUntil = &lockUntil
-	}
-
-	return s.repo.UpdateUser(ctx, user)
+	// Use atomic increment to prevent race conditions
+	return s.repo.IncrementFailedLoginAtomic(ctx, userID)
 }
 
 // IsAccountLocked checks if user account is currently locked
@@ -288,7 +270,13 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return nil, err
 	}
 
-	user.Password = newPassword // This should be hashed by the caller
+	// Hash the new password before storing
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		s.logger.Error("Failed to hash password during reset", "user_id", user.ID, "error", err)
+		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to process password")
+	}
+	user.Password = string(hashedPassword)
 	user.PasswordResetToken = nil
 	user.PasswordResetExpiresAt = nil
 	user.PasswordChangedAt = time.Now()
@@ -652,4 +640,68 @@ func (r *PostgresRepository) GetUserByPasswordResetToken(ctx context.Context, to
 	}
 
 	return &user, nil
+}
+
+// IncrementFailedLoginAtomic atomically increments failed login attempts
+func (r *PostgresRepository) IncrementFailedLoginAtomic(ctx context.Context, userID string) error {
+	if userID == "" {
+		return errors.NewValidationError("user ID is required")
+	}
+
+	// Use UPDATE with conditional logic to handle increment and lock atomically
+	query := `
+		UPDATE users SET
+			failed_login_attempts = failed_login_attempts + 1,
+			locked_until = CASE 
+				WHEN failed_login_attempts + 1 >= 5 THEN NOW() + INTERVAL '30 minutes'
+				ELSE locked_until
+			END,
+			updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	result, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		r.logger.Error("Failed to increment failed login attempts", "error", err, "user_id", userID)
+		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to update failed login attempts")
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return errors.NewNotFoundError("user not found")
+	}
+
+	r.logger.Info("Failed login attempts incremented atomically", "user_id", userID)
+	return nil
+}
+
+// UpdateLastLoginAtomic atomically updates last login information
+func (r *PostgresRepository) UpdateLastLoginAtomic(ctx context.Context, userID, ipAddress string) error {
+	if userID == "" {
+		return errors.NewValidationError("user ID is required")
+	}
+
+	// Use UPDATE to atomically reset failed attempts and update login info
+	query := `
+		UPDATE users SET
+			last_login_at = NOW(),
+			last_login_ip = $2,
+			login_count = login_count + 1,
+			failed_login_attempts = 0,
+			locked_until = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	result, err := r.db.Exec(ctx, query, userID, ipAddress)
+	if err != nil {
+		r.logger.Error("Failed to update last login", "error", err, "user_id", userID)
+		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to update last login")
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return errors.NewNotFoundError("user not found")
+	}
+
+	r.logger.Info("Last login updated atomically", "user_id", userID)
+	return nil
 }

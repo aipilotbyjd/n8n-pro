@@ -74,6 +74,7 @@ MIGRATE COMMANDS:
     admin migrate up [--steps=<n>]
     admin migrate down [--steps=<n>]
     admin migrate status
+    admin migrate force <version>
     admin migrate create --name=<migration-name>
 
 CLEANUP COMMANDS:
@@ -327,6 +328,8 @@ func (cli *AdminCLI) handleMigrateCommand(ctx context.Context, args []string, js
 		return cli.migrateDown(ctx, args[1:], jsonOutput)
 	case "status":
 		return cli.migrateStatus(ctx, jsonOutput)
+	case "force":
+		return cli.migrateForce(ctx, args[1:], jsonOutput)
 	case "create":
 		return cli.createMigration(ctx, args[1:], jsonOutput)
 	default:
@@ -655,7 +658,75 @@ func (cli *AdminCLI) migrateDown(ctx context.Context, args []string, jsonOutput 
 }
 
 func (cli *AdminCLI) migrateStatus(ctx context.Context, jsonOutput bool) error {
-	fmt.Println("Migrate status - not implemented yet")
+	// Construct DSN from config
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		cli.cfg.Database.Username,
+		cli.cfg.Database.Password,
+		cli.cfg.Database.Host,
+		cli.cfg.Database.Port,
+		cli.cfg.Database.Database,
+	)
+
+	migrationsPath := "file://./internal/storage/migrations"
+
+	m, err := migrate.New(migrationsPath, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	version, dirty, err := m.Version()
+	if err != nil {
+		return fmt.Errorf("failed to get migration status: %w", err)
+	}
+
+	if jsonOutput {
+		status := map[string]interface{}{
+			"version": version,
+			"dirty":   dirty,
+		}
+		return json.NewEncoder(os.Stdout).Encode(status)
+	}
+
+	fmt.Printf("Migration Status:\n")
+	fmt.Printf("Version: %d\n", version)
+	fmt.Printf("Dirty: %t\n", dirty)
+
+	return nil
+}
+
+func (cli *AdminCLI) migrateForce(ctx context.Context, args []string, jsonOutput bool) error {
+	if len(args) == 0 {
+		return fmt.Errorf("force command requires a version number")
+	}
+
+	version, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid version number: %w", err)
+	}
+
+	cli.logger.Info("Forcing database migration version...", "version", version)
+
+	// Construct DSN from config
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		cli.cfg.Database.Username,
+		cli.cfg.Database.Password,
+		cli.cfg.Database.Host,
+		cli.cfg.Database.Port,
+		cli.cfg.Database.Database,
+	)
+
+	migrationsPath := "file://./internal/storage/migrations"
+
+	m, err := migrate.New(migrationsPath, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	if err := m.Force(version); err != nil {
+		return fmt.Errorf("failed to force migration version: %w", err)
+	}
+
+	cli.logger.Info("Migration version forced successfully", "version", version)
 	return nil
 }
 

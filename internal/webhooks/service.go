@@ -335,6 +335,7 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 // HandleNodeWebhook handles webhook requests for specific nodes
 func (s *Service) HandleNodeWebhook(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	workflowID := chi.URLParam(r, "workflowId")
 	nodeID := chi.URLParam(r, "nodeId")
 
@@ -344,26 +345,112 @@ func (s *Service) HandleNodeWebhook(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 	)
 
-	// For node-specific webhooks, we can add additional processing logic
-	// For now, delegate to the main webhook handler with node context
-	_ = map[string]interface{}{
-		"node_id": nodeID,
-		"method":  r.Method,
-		"path":    r.URL.Path,
+	// Get workflow to verify it exists and is active
+	workflow, err := s.workflowSvc.GetByID(r.Context(), workflowID, "webhook-user")
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "Failed to get workflow for node webhook",
+			"workflow_id", workflowID,
+			"node_id", nodeID,
+			"error", err,
+		)
+		http.Error(w, "Workflow not found", http.StatusNotFound)
+		return
 	}
 
-	// Read and add request data similar to HandleWebhook
-	// This is a simplified version - full implementation would be similar to HandleWebhook
+	// Validate that the node exists in the workflow
+	nodeExists := false
+	for _, node := range workflow.Nodes {
+		if node.ID == nodeID {
+			nodeExists = true
+			break
+		}
+	}
+
+	if !nodeExists {
+		s.logger.WarnContext(r.Context(), "Node not found in workflow",
+			"workflow_id", workflowID,
+			"node_id", nodeID,
+		)
+		http.Error(w, "Node not found in workflow", http.StatusNotFound)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "Failed to read node webhook body", "error", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse headers and query parameters
+	headers := make(map[string]string)
+	for key, values := range r.Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	query := make(map[string]string)
+	for key, values := range r.URL.Query() {
+		if len(values) > 0 {
+			query[key] = values[0]
+		}
+	}
+
+	// Create node-specific webhook data
+	webhookData := map[string]interface{}{
+		"node_id":    nodeID,
+		"method":     r.Method,
+		"headers":    headers,
+		"query":      query,
+		"body":       string(body),
+		"url":        r.URL.String(),
+		"remote_ip":  s.getClientIP(r),
+		"user_agent": r.UserAgent(),
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Trigger workflow execution with node context
+	execution, err := s.workflowSvc.Execute(
+		r.Context(),
+		workflowID,
+		webhookData,
+		"webhook-system",
+		"node-webhook",
+	)
+
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "Failed to execute workflow from node webhook",
+			"workflow_id", workflowID,
+			"node_id", nodeID,
+			"error", err,
+		)
+		http.Error(w, "Failed to execute workflow", http.StatusInternalServerError)
+		return
+	}
+
+	// Return successful response
 	response := map[string]interface{}{
-		"success":     true,
-		"message":     "Node webhook processed",
-		"workflow_id": workflowID,
-		"node_id":     nodeID,
+		"success":      true,
+		"message":      "Node webhook processed successfully",
+		"execution_id": execution.ID,
+		"workflow_id":  workflowID,
+		"node_id":      nodeID,
+		"timestamp":    time.Now().UTC().Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
+
+	s.logger.InfoContext(r.Context(), "Node webhook processed successfully",
+		"workflow_id", workflowID,
+		"node_id", nodeID,
+		"execution_id", execution.ID,
+		"duration", time.Since(start),
+	)
 }
 
 // HandleWebhookGET handles GET requests for webhooks (for testing/verification)
@@ -444,10 +531,12 @@ func (s *Service) validateSignature(r *http.Request, body []byte) error {
 
 	expectedSig := parts[1]
 
-	// Calculate expected signature
-	// Note: This is a simplified example - you'd need the actual webhook secret
-	secret := "webhook-secret" // This should come from configuration
-	mac := hmac.New(sha256.New, []byte(secret))
+	// Calculate expected signature using configured secret
+	if s.config.SignatureSecret == "" {
+		return errors.New(errors.ErrorTypeAuthentication, errors.CodeInvalidCredentials,
+			"webhook signature secret not configured")
+	}
+	mac := hmac.New(sha256.New, []byte(s.config.SignatureSecret))
 	mac.Write(body)
 	calculatedSig := hex.EncodeToString(mac.Sum(nil))
 

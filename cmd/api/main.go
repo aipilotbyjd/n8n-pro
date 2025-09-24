@@ -88,7 +88,7 @@ func main() {
 	validator := workflows.NewDefaultValidator(authSvc)
 	
 	// Initialize executor
-	executor := workflows.NewDefaultExecutor()
+	executor := workflows.NewDefaultExecutor(workflowRepo)
 	
 	// Initialize template service
 	templateSvc := workflows.NewDefaultTemplateService(workflowRepo, log)

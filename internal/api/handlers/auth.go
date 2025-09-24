@@ -3,6 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 
 	"n8n-pro/internal/api/middleware"
 	"n8n-pro/internal/auth"
@@ -236,8 +238,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		"message": "User registered successfully. Please check your email for verification.",
 	}
 
-	// TODO: Remove this in production - only for development
-	if verificationToken != "" {
+	// Only include verification token in development mode
+	if verificationToken != "" && isDevMode() {
 		response["verification_token"] = verificationToken
 	}
 
@@ -395,8 +397,11 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"message": "Password reset link has been sent to your email",
-		// TODO: Remove this in production
-		"reset_token": token,
+	}
+
+	// Only include reset token in development mode for testing
+	if isDevMode() {
+		response["reset_token"] = token
 	}
 
 	writeSuccess(w, http.StatusOK, response)
@@ -472,8 +477,11 @@ func (h *AuthHandler) SendVerificationEmail(w http.ResponseWriter, r *http.Reque
 
 	response := map[string]interface{}{
 		"message": "Verification email has been sent",
-		// TODO: Remove this in production
-		"verification_token": token,
+	}
+
+	// Only include verification token in development mode for testing
+	if isDevMode() {
+		response["verification_token"] = token
 	}
 
 	writeSuccess(w, http.StatusOK, response)
@@ -559,10 +567,22 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, userInfo)
 }
 
-// Helper function to get client IP address
+// isDevMode checks if running in development mode
+func isDevMode() bool {
+	env := os.Getenv("ENVIRONMENT")
+	return env == "development" || env == "dev" || env == ""
+}
+
+// getClientIP extracts the real client IP from request headers
 func getClientIP(r *http.Request) string {
 	// Check X-Forwarded-For header
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP (original client)
+		for i, c := range xff {
+			if c == ',' {
+				return strings.TrimSpace(xff[:i])
+			}
+		}
 		return xff
 	}
 	
@@ -572,5 +592,9 @@ func getClientIP(r *http.Request) string {
 	}
 	
 	// Fall back to remote address
-	return r.RemoteAddr
+	ip := r.RemoteAddr
+	if colon := strings.LastIndex(ip, ":"); colon != -1 {
+		ip = ip[:colon]
+	}
+	return ip
 }

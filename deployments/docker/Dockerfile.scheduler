@@ -1,17 +1,55 @@
-FROM golang:1.23-alpine
+# Build stage
+FROM golang:1.23-alpine AS builder
 
-WORKDIR /app
+# Install dependencies for building
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev
 
+# Create appuser for security
+RUN adduser -D -g '' appuser
+
+WORKDIR /build
+
+# Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
+RUN go mod verify
 
+# Copy source code
 COPY . .
 
-RUN go build -o ./bin/scheduler ./cmd/scheduler
-RUN go build -o ./bin/admin ./cmd/admin
+# Build the applications
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s' \
+    -o scheduler ./cmd/scheduler
 
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s' \
+    -o admin ./cmd/admin
+
+# Production stage
+FROM alpine:3.19
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata netcat-openbsd
+
+# Copy user from builder
+COPY --from=builder /etc/passwd /etc/passwd
+
+# Create app directory
+WORKDIR /app
+
+# Copy built binaries
+COPY --from=builder /build/scheduler ./bin/scheduler
+COPY --from=builder /build/admin ./bin/admin
+
+# Copy entrypoint script
 COPY deployments/docker/entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Use non-root user
+USER appuser
+
+# No exposed port for scheduler (internal service)
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["./bin/scheduler"]

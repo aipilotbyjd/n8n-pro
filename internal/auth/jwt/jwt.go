@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -72,6 +73,8 @@ func DefaultConfig() *Config {
 type Service struct {
 	config        *Config
 	signingMethod jwt.SigningMethod
+	blacklist     map[string]time.Time // Simple in-memory blacklist
+	blacklistMu   sync.RWMutex         // Protects blacklist access
 }
 
 // New creates a new JWT service
@@ -83,6 +86,7 @@ func New(config *Config) *Service {
 	return &Service{
 		config:        config,
 		signingMethod: jwt.SigningMethodHS256,
+		blacklist:     make(map[string]time.Time),
 	}
 }
 
@@ -186,6 +190,11 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid or expired claims")
 	}
 
+	// Check if token is revoked
+	if s.IsTokenRevoked(tokenString) {
+		return nil, fmt.Errorf("token has been revoked")
+	}
+
 	return claims, nil
 }
 
@@ -263,8 +272,8 @@ func (s *Service) generateToken(claims *Claims) (string, error) {
 func generateRandomSecret(length int) string {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based secret if random fails
-		return fmt.Sprintf("n8n-pro-secret-%d", time.Now().UnixNano())
+		// Panic instead of using insecure fallback
+		panic(fmt.Sprintf("Failed to generate secure random secret: %v. This is a critical security failure.", err))
 	}
 	return hex.EncodeToString(bytes)
 }
@@ -324,20 +333,56 @@ func (s *Service) CreateAPIToken(userID, email, role, teamID string, scopes []st
 	return s.generateToken(claims)
 }
 
-// RevokeToken marks a token as revoked (placeholder for implementation with token blacklist)
+// RevokeToken marks a token as revoked using in-memory blacklist
 func (s *Service) RevokeToken(tokenString string) error {
-	// In a real implementation, you would add the token to a blacklist
-	// stored in Redis or database with expiration time
-	// For now, we'll just validate that the token exists
-	_, err := s.ValidateToken(tokenString)
+	// Validate token first
+	claims, err := s.ValidateToken(tokenString)
 	if err != nil {
 		return fmt.Errorf("cannot revoke invalid token: %w", err)
 	}
 
-	// TODO: Implement token blacklist storage
-	// Example: store token ID in Redis with TTL equal to token's remaining lifetime
+	// Add to blacklist with expiration
+	s.blacklistMu.Lock()
+	defer s.blacklistMu.Unlock()
+	
+	s.blacklist[tokenString] = claims.ExpiresAt
+	
+	// Clean up expired tokens periodically
+	go s.cleanupExpiredTokens()
 
 	return nil
+}
+
+// IsTokenRevoked checks if a token has been revoked
+func (s *Service) IsTokenRevoked(tokenString string) bool {
+	s.blacklistMu.RLock()
+	defer s.blacklistMu.RUnlock()
+	
+	expiry, exists := s.blacklist[tokenString]
+	if !exists {
+		return false
+	}
+	
+	// Remove expired entries
+	if time.Now().After(expiry) {
+		delete(s.blacklist, tokenString)
+		return false
+	}
+	
+	return true
+}
+
+// cleanupExpiredTokens removes expired tokens from blacklist
+func (s *Service) cleanupExpiredTokens() {
+	s.blacklistMu.Lock()
+	defer s.blacklistMu.Unlock()
+	
+	now := time.Now()
+	for token, expiry := range s.blacklist {
+		if now.After(expiry) {
+			delete(s.blacklist, token)
+		}
+	}
 }
 
 // GetUserIDFromToken extracts user ID from token without full validation

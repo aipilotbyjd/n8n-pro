@@ -57,6 +57,7 @@ func loadWebhookConfig() *WebhookConfig {
 		EnableSignatureVerify: getEnvBool("WEBHOOK_ENABLE_SIGNATURE_VERIFY", true),
 		SignatureHeader:       getEnvString("WEBHOOK_SIGNATURE_HEADER", "X-Signature"),
 		SignatureAlgorithm:    getEnvString("WEBHOOK_SIGNATURE_ALGORITHM", "sha256"),
+		SignatureSecret:       getEnvString("WEBHOOK_SIGNATURE_SECRET", ""),
 		RetryAttempts:         getEnvInt("WEBHOOK_RETRY_ATTEMPTS", 3),
 		RetryDelay:            getEnvDuration("WEBHOOK_RETRY_DELAY", time.Second),
 		EnableLogging:         getEnvBool("WEBHOOK_ENABLE_LOGGING", true),
