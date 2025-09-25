@@ -434,8 +434,8 @@ func writeSecurityError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	
 	if apiError, ok := err.(*errors.APIError); ok {
-		w.WriteHeader(apiError.StatusCode)
-		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + apiError.Code + `"}`))
+		w.WriteHeader(apiError.HTTPStatus())
+		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + string(apiError.Code) + `"}`))
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Internal server error", "code": "INTERNAL_ERROR"}`))

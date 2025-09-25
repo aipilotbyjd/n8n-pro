@@ -126,7 +126,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByID(ctx context.Context, id str
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }
@@ -174,7 +178,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByEmail(ctx context.Context, ema
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }
@@ -220,7 +228,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByEmailInOrganization(ctx contex
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }
@@ -280,7 +292,11 @@ func (r *PostgresEnhancedUserRepository) GetUsersByOrganization(ctx context.Cont
 		}
 
 		// Set computed permissions based on role
-		user.Permissions = GetRolePermissions(user.Role)
+		permSet := GetRolePermissions(user.Role)
+		user.Permissions = make([]Permission, 0, len(permSet))
+		for perm := range permSet {
+			user.Permissions = append(user.Permissions, perm)
+		}
 		users = append(users, &user)
 	}
 
@@ -589,7 +605,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByEmailVerificationToken(ctx con
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }
@@ -636,7 +656,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByPasswordResetToken(ctx context
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }
@@ -682,7 +706,11 @@ func (r *PostgresEnhancedUserRepository) GetUserByAPIKey(ctx context.Context, ap
 	}
 
 	// Set computed permissions based on role
-	user.Permissions = GetRolePermissions(user.Role)
+	permSet := GetRolePermissions(user.Role)
+	user.Permissions = make([]Permission, 0, len(permSet))
+	for perm := range permSet {
+		user.Permissions = append(user.Permissions, perm)
+	}
 
 	return &user, nil
 }

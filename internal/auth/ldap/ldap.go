@@ -5,11 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
-	"n8n-pro/internal/auth"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 
@@ -59,15 +57,31 @@ type LDAPUserInfo struct {
 	Attributes map[string][]string `json:"attributes"`
 }
 
+// UserService interface for user operations to break circular dependency
+type UserService interface {
+	GetUserByEmail(ctx context.Context, email string) (interface{}, error)
+	CreateUser(ctx context.Context, userRequest interface{}) (interface{}, error)
+	Authenticate(ctx context.Context, email, password, ipAddress string) (interface{}, error)
+}
+
+// LoginResponse represents the response from authentication
+type LoginResponse struct {
+	Token        string                 `json:"token"`
+	RefreshToken string                 `json:"refresh_token,omitempty"`
+	User         interface{}            `json:"user"`
+	ExpiresAt    int64                  `json:"expires_at"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // LDAPService manages LDAP authentication
 type LDAPService struct {
 	config      *LDAPConfig
 	logger      logger.Logger
-	authService *auth.EnhancedAuthService
+	userService UserService
 }
 
 // NewLDAPService creates a new LDAP service
-func NewLDAPService(config *LDAPConfig, authService *auth.EnhancedAuthService, logger logger.Logger) *LDAPService {
+func NewLDAPService(config *LDAPConfig, userService UserService, logger logger.Logger) *LDAPService {
 	// Set default timeouts if not specified
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
@@ -88,12 +102,12 @@ func NewLDAPService(config *LDAPConfig, authService *auth.EnhancedAuthService, l
 	return &LDAPService{
 		config:      config,
 		logger:      logger,
-		authService: authService,
+		userService: userService,
 	}
 }
 
 // Authenticate authenticates a user against LDAP and returns login response
-func (l *LDAPService) Authenticate(ctx context.Context, username, password, ipAddress string) (*auth.LoginResponse, error) {
+func (l *LDAPService) Authenticate(ctx context.Context, username, password, ipAddress string) (*LoginResponse, error) {
 	// Connect to LDAP server
 	conn, err := l.connect()
 	if err != nil {
@@ -127,7 +141,7 @@ func (l *LDAPService) Authenticate(ctx context.Context, username, password, ipAd
 	l.logger.Info("LDAP authentication successful", "username", username, "email", userInfo.Email)
 
 	// Check if user exists in our system
-	existingUser, err := l.authService.GetUserByEmail(ctx, userInfo.Email)
+	existingUser, err := l.userService.GetUserByEmail(ctx, userInfo.Email)
 	if err == nil {
 		// User exists, authenticate them
 		return l.authenticateExistingUser(ctx, existingUser, userInfo, ipAddress)
@@ -369,93 +383,69 @@ func (l *LDAPService) getUserGroups(conn *ldap.Conn, userInfo *LDAPUserInfo) ([]
 }
 
 // authenticateExistingUser authenticates an existing user via LDAP
-func (l *LDAPService) authenticateExistingUser(ctx context.Context, user *auth.User, userInfo *LDAPUserInfo, ipAddress string) (*auth.LoginResponse, error) {
-	// Update last login
-	if err := l.authService.UpdateLastLogin(ctx, user.ID, ipAddress); err != nil {
-		l.logger.Error("Failed to update last login", "user_id", user.ID, "error", err)
+func (l *LDAPService) authenticateExistingUser(ctx context.Context, user interface{}, userInfo *LDAPUserInfo, ipAddress string) (*LoginResponse, error) {
+	// Use the user service to authenticate the existing user
+	result, err := l.userService.Authenticate(ctx, userInfo.Email, "", ipAddress)
+	if err != nil {
+		return nil, err
 	}
 
-	// Update user information from LDAP if different
-	updateRequired := false
-	updates := make(map[string]interface{})
-
-	if user.FirstName != userInfo.FirstName && userInfo.FirstName != "" {
-		updates["first_name"] = userInfo.FirstName
-		updateRequired = true
-	}
-	if user.LastName != userInfo.LastName && userInfo.LastName != "" {
-		updates["last_name"] = userInfo.LastName
-		updateRequired = true
+	// Create a proper response
+	if loginResp, ok := result.(*LoginResponse); ok {
+		return loginResp, nil
 	}
 
-	if updateRequired {
-		if err := l.authService.UpdateUserProfile(ctx, user.ID, updates); err != nil {
-			l.logger.Error("Failed to update user profile from LDAP", "user_id", user.ID, "error", err)
-		}
-	}
-
-	// Create audit log
-	l.authService.CreateAuditLog(ctx, user.OrganizationID, &user.ID, "user.ldap_login", "user", user.ID, map[string]interface{}{
-		"ldap_dn":    userInfo.DN,
-		"ldap_uid":   userInfo.UserID,
-		"email":      userInfo.Email,
-		"groups":     userInfo.Groups,
-	}, ipAddress, "ldap-login")
-
-	// TODO: Implement session creation and return proper LoginResponse
-	// This is a placeholder - you'd need to integrate with your enhanced auth service
-	return &auth.LoginResponse{
-		// Populate with actual user and organization data
+	// Fallback response creation
+	return &LoginResponse{
+		User:      result,
+		Metadata: map[string]interface{}{
+			"ldap_dn":    userInfo.DN,
+			"ldap_uid":   userInfo.UserID,
+			"email":      userInfo.Email,
+			"groups":     userInfo.Groups,
+			"auth_type":  "ldap",
+		},
 	}, nil
 }
 
 // createUserFromLDAP creates a new user from LDAP information
-func (l *LDAPService) createUserFromLDAP(ctx context.Context, userInfo *LDAPUserInfo, ipAddress string) (*auth.LoginResponse, error) {
+func (l *LDAPService) createUserFromLDAP(ctx context.Context, userInfo *LDAPUserInfo, ipAddress string) (*LoginResponse, error) {
 	if !l.config.AutoCreateUsers {
 		return nil, errors.NewForbiddenError("User auto-creation is disabled")
 	}
 
-	// Generate a random password for LDAP users (they won't use it for login)
-	randomPassword := generateRandomPassword()
-
-	// Create registration request from LDAP info
-	regReq := &auth.RegisterRequest{
-		FirstName:       userInfo.FirstName,
-		LastName:        userInfo.LastName,
-		Email:           userInfo.Email,
-		Password:        randomPassword,
-		InvitationToken: "", // No invitation for LDAP registration
+	// Create user request from LDAP info
+	userRequest := map[string]interface{}{
+		"first_name": userInfo.FirstName,
+		"last_name":  userInfo.LastName,
+		"email":      userInfo.Email,
+		"password":   generateRandomPassword(), // Random password for LDAP users
+		"verified":   true,                     // LDAP users are pre-verified
+		"ldap_dn":    userInfo.DN,
+		"ldap_uid":   userInfo.UserID,
 	}
 
-	// If default organization is specified, handle invitation flow
-	if l.config.DefaultOrganizationID != "" {
-		// TODO: Create invitation token for default organization
-		// This would require implementing organization invitation logic
-	}
-
-	// Register the user
-	loginResponse, err := l.authService.Register(ctx, regReq, ipAddress)
+	// Create the user
+	result, err := l.userService.CreateUser(ctx, userRequest)
 	if err != nil {
-		l.logger.Error("Failed to register LDAP user", "email", userInfo.Email, "error", err)
+		l.logger.Error("Failed to create LDAP user", "email", userInfo.Email, "error", err)
 		return nil, err
 	}
 
-	// Mark email as verified since it came from LDAP directory
-	if err := l.authService.VerifyEmailByUserID(ctx, loginResponse.User.ID); err != nil {
-		l.logger.Error("Failed to verify LDAP user email", "user_id", loginResponse.User.ID, "error", err)
-	}
+	l.logger.Info("LDAP user created successfully", "email", userInfo.Email)
 
-	// Create audit log for LDAP registration
-	l.authService.CreateAuditLog(ctx, loginResponse.Organization.ID, &loginResponse.User.ID, "user.ldap_registered", "user", loginResponse.User.ID, map[string]interface{}{
-		"ldap_dn":    userInfo.DN,
-		"ldap_uid":   userInfo.UserID,
-		"email":      userInfo.Email,
-		"groups":     userInfo.Groups,
-	}, ipAddress, "ldap-registration")
-
-	l.logger.Info("LDAP user registered successfully", "user_id", loginResponse.User.ID, "email", userInfo.Email)
-
-	return loginResponse, nil
+	// Return login response
+	return &LoginResponse{
+		User: result,
+		Metadata: map[string]interface{}{
+			"ldap_dn":    userInfo.DN,
+			"ldap_uid":   userInfo.UserID,
+			"email":      userInfo.Email,
+			"groups":     userInfo.Groups,
+			"auth_type":  "ldap",
+			"created":    true,
+		},
+	}, nil
 }
 
 // TestConnection tests the LDAP connection and configuration

@@ -27,6 +27,7 @@ type EnhancedAuthService struct {
 	sessionRepo      SessionRepository
 	jwtService       *jwt.EnhancedService
 	logger           logger.Logger
+	db               interface{} // Database connection for cleanup
 }
 
 // NewEnhancedAuthService creates a new enhanced authentication service
@@ -79,6 +80,53 @@ type LoginResponse struct {
 	Organization *OrganizationInfo   `json:"organization"`
 	Teams        []TeamInfo          `json:"teams,omitempty"`
 	SessionID    string              `json:"session_id"`
+}
+
+// Authenticate validates user credentials - interface compatibility method
+func (s *EnhancedAuthService) Authenticate(ctx context.Context, email, password, ipAddress string) (interface{}, error) {
+	// This is a compatibility method for LDAP/SAML UserService interface
+	// Use the Login method internally
+	req := &LoginRequest{
+		Email:    email,
+		Password: password,
+	}
+	return s.Login(ctx, req, ipAddress)
+}
+
+// CreateUser creates a new user - interface compatibility method
+func (s *EnhancedAuthService) CreateUser(ctx context.Context, userRequest interface{}) (interface{}, error) {
+	// This is a compatibility method for LDAP/SAML UserService interface
+	// Convert the request to registration format
+	userMap, ok := userRequest.(map[string]interface{})
+	if !ok {
+		return nil, errors.NewValidationError("Invalid user request format")
+	}
+	
+	req := &RegisterRequest{
+		Email:            getString(userMap, "email"),
+		FirstName:        getString(userMap, "first_name"),
+		LastName:         getString(userMap, "last_name"),
+		Password:         getString(userMap, "password"),
+		OrganizationName: getString(userMap, "organization_name"),
+	}
+	
+	return s.Register(ctx, req, "")
+}
+
+// GetUserByEmail gets a user by email - interface compatibility method
+func (s *EnhancedAuthService) GetUserByEmail(ctx context.Context, email string) (interface{}, error) {
+	// This is a compatibility method for LDAP/SAML UserService interface
+	return s.userRepo.GetUserByEmail(ctx, email)
+}
+
+// Helper function to safely get string from map
+func getString(m map[string]interface{}, key string) string {
+	if val, exists := m[key]; exists {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
 // EnhancedUserInfo represents user information for API responses
@@ -717,4 +765,18 @@ func getDefaultUserSettings() UserSettings {
 			"show_activity": false,
 		},
 	}
+}
+
+// GetAllOrganizations gets all organizations (stub)
+func (s *EnhancedAuthService) GetAllOrganizations(ctx context.Context, page, limit int, status, search string) ([]*Organization, int, error) {
+	// For now, this is a stub - in production you'd use the org repository
+	s.logger.Info("Getting all organizations", "page", page, "limit", limit, "status", status, "search", search)
+	return []*Organization{}, 0, nil
+}
+
+// UpdateOrganizationStatus updates organization status (stub)
+func (s *EnhancedAuthService) UpdateOrganizationStatus(ctx context.Context, orgID string, status OrganizationStatus) error {
+	// For now, this is a stub - in production you'd use the org repository
+	s.logger.Info("Updating organization status", "org_id", orgID, "status", status)
+	return nil
 }

@@ -104,9 +104,15 @@ func (h *OrganizationHandler) GetCurrentOrganization(w http.ResponseWriter, r *h
 		return
 	}
 
-	org, err := h.authService.GetOrganizationByID(r.Context(), user.OrganizationID)
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	org, err := h.authService.GetOrganizationByID(r.Context(), orgID)
 	if err != nil {
-		h.logger.Error("Failed to get organization", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to get organization", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to get organization"))
 		return
 	}
@@ -131,15 +137,20 @@ func (h *OrganizationHandler) GetCurrentOrganization(w http.ResponseWriter, r *h
 		owner = nil // Set to nil on error
 	}
 
+	// Convert OrganizationSettings struct to map for response
+	settingsMap := make(map[string]interface{})
+	settingsBytes, _ := json.Marshal(org.Settings)
+	json.Unmarshal(settingsBytes, &settingsMap)
+
 	response := &OrganizationResponse{
 		ID:          org.ID,
 		Name:        org.Name,
 		Slug:        org.Slug,
-		Description: org.Description,
+		Description: nil, // Organization model doesn't have Description field
 		Plan:        org.Plan,
 		PlanLimits:  org.PlanLimits,
 		Status:      org.Status,
-		Settings:    org.Settings,
+		Settings:    settingsMap,
 		MemberCount: memberCount,
 		TeamCount:   teamCount,
 		CreatedAt:   org.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -168,7 +179,7 @@ func (h *OrganizationHandler) UpdateOrganization(w http.ResponseWriter, r *http.
 	}
 
 	// Check if user has permission to update organization
-	if user.Role != auth.RoleOwner && user.Role != auth.RoleAdmin {
+	if user.Role != string(auth.RoleOwner) && user.Role != string(auth.RoleAdmin) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to update organization"))
 		return
 	}
@@ -179,37 +190,48 @@ func (h *OrganizationHandler) UpdateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	err := h.authService.UpdateOrganization(r.Context(), user.OrganizationID, &req)
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	err := h.authService.UpdateOrganization(r.Context(), orgID, &req)
 	if err != nil {
-		h.logger.Error("Failed to update organization", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to update organization", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to update organization"))
 		return
 	}
 
 	// Get updated organization
-	org, err := h.authService.GetOrganizationByID(r.Context(), user.OrganizationID)
+	org, err := h.authService.GetOrganizationByID(r.Context(), orgID)
 	if err != nil {
-		h.logger.Error("Failed to get updated organization", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to get updated organization", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to get updated organization"))
 		return
 	}
 
 	// Log the action
-	h.authService.CreateAuditLog(r.Context(), user.OrganizationID, &user.ID, "organization.updated", "organization", org.ID, map[string]interface{}{
+	h.authService.CreateAuditLog(r.Context(), orgID, &user.ID, "organization.updated", "organization", org.ID, map[string]interface{}{
 		"updated_fields": getUpdatedFields(&req),
 	}, getClientIP(r), "organization-update")
 
 	h.logger.Info("Organization updated", "org_id", org.ID, "user_id", user.ID)
 
+	// Convert OrganizationSettings struct to map for response
+	settingsMap := make(map[string]interface{})
+	settingsBytes, _ := json.Marshal(org.Settings)
+	json.Unmarshal(settingsBytes, &settingsMap)
+
 	response := &OrganizationResponse{
 		ID:          org.ID,
 		Name:        org.Name,
 		Slug:        org.Slug,
-		Description: org.Description,
+		Description: nil, // Organization model doesn't have Description field
 		Plan:        org.Plan,
 		PlanLimits:  org.PlanLimits,
 		Status:      org.Status,
-		Settings:    org.Settings,
+		Settings:    settingsMap,
 		CreatedAt:   org.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:   org.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
@@ -226,7 +248,7 @@ func (h *OrganizationHandler) GetOrganizationMembers(w http.ResponseWriter, r *h
 	}
 
 	// Check if user has permission to view members
-	if user.Role == auth.RoleViewer {
+	if user.Role == string(auth.RoleViewer) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to view organization members"))
 		return
 	}
@@ -242,9 +264,15 @@ func (h *OrganizationHandler) GetOrganizationMembers(w http.ResponseWriter, r *h
 		limit = 20
 	}
 
-	members, total, err := h.authService.GetOrganizationMembers(r.Context(), user.OrganizationID, page, limit)
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	members, total, err := h.authService.GetOrganizationMembers(r.Context(), orgID, page, limit)
 	if err != nil {
-		h.logger.Error("Failed to get organization members", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to get organization members", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to get organization members"))
 		return
 	}
@@ -311,7 +339,7 @@ func (h *OrganizationHandler) InviteUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check if user has permission to invite users
-	if user.Role != auth.RoleOwner && user.Role != auth.RoleAdmin {
+	if user.Role != string(auth.RoleOwner) && user.Role != string(auth.RoleAdmin) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to invite users"))
 		return
 	}
@@ -323,14 +351,20 @@ func (h *OrganizationHandler) InviteUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Validate role - can't invite someone with higher privileges
-	if (user.Role == auth.RoleAdmin && req.Role == auth.RoleOwner) {
+	if (user.Role == string(auth.RoleAdmin) && req.Role == auth.RoleOwner) {
 		writeError(w, errors.NewValidationError("Cannot invite user with higher privileges"))
 		return
 	}
 
-	invitation, err := h.authService.InviteUser(r.Context(), user.OrganizationID, user.ID, req.Email, req.Role, req.TeamIDs, req.Message, getClientIP(r))
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	invitation, err := h.authService.InviteUser(r.Context(), orgID, user.ID, req.Email, req.Role, req.TeamIDs, req.Message, getClientIP(r))
 	if err != nil {
-		h.logger.Error("Failed to invite user", "org_id", user.OrganizationID, "email", req.Email, "error", err)
+		h.logger.Error("Failed to invite user", "org_id", orgID, "email", req.Email, "error", err)
 		if err.Error() == "user already exists in organization" {
 			writeError(w, errors.NewValidationError("User is already a member of this organization"))
 			return
@@ -339,7 +373,7 @@ func (h *OrganizationHandler) InviteUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.logger.Info("User invited successfully", "org_id", user.OrganizationID, "invited_email", req.Email, "inviter_id", user.ID)
+	h.logger.Info("User invited successfully", "org_id", orgID, "invited_email", req.Email, "inviter_id", user.ID)
 
 	response := map[string]interface{}{
 		"message":        "Invitation sent successfully",
@@ -361,7 +395,7 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 	}
 
 	// Check if user has permission to update member roles
-	if user.Role != auth.RoleOwner && user.Role != auth.RoleAdmin {
+	if user.Role != string(auth.RoleOwner) && user.Role != string(auth.RoleAdmin) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to update member roles"))
 		return
 	}
@@ -380,7 +414,7 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 	}
 
 	// Validate role - can't assign someone with higher privileges than yourself
-	if (user.Role == auth.RoleAdmin && req.Role == auth.RoleOwner) {
+	if (user.Role == string(auth.RoleAdmin) && req.Role == auth.RoleOwner) {
 		writeError(w, errors.NewValidationError("Cannot assign role with higher privileges"))
 		return
 	}
@@ -391,18 +425,24 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err := h.authService.UpdateMemberRole(r.Context(), user.OrganizationID, memberID, req.Role, getClientIP(r))
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	err := h.authService.UpdateMemberRole(r.Context(), orgID, memberID, req.Role, getClientIP(r))
 	if err != nil {
-		h.logger.Error("Failed to update member role", "org_id", user.OrganizationID, "member_id", memberID, "new_role", req.Role, "error", err)
+		h.logger.Error("Failed to update member role", "org_id", orgID, "member_id", memberID, "new_role", req.Role, "error", err)
 		if err.Error() == "member not found" {
 			writeError(w, errors.NewNotFoundError("Member not found"))
 			return
 		}
 		writeError(w, errors.InternalError("Failed to update member role"))
-		return
+	return
 	}
 
-	h.logger.Info("Member role updated", "org_id", user.OrganizationID, "member_id", memberID, "new_role", req.Role, "updated_by", user.ID)
+	h.logger.Info("Member role updated", "org_id", orgID, "member_id", memberID, "new_role", req.Role, "updated_by", user.ID)
 
 	response := map[string]interface{}{
 		"message":   "Member role updated successfully",
@@ -422,7 +462,7 @@ func (h *OrganizationHandler) RemoveMember(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check if user has permission to remove members
-	if user.Role != auth.RoleOwner && user.Role != auth.RoleAdmin {
+	if user.Role != string(auth.RoleOwner) && user.Role != string(auth.RoleAdmin) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to remove members"))
 		return
 	}
@@ -440,9 +480,15 @@ func (h *OrganizationHandler) RemoveMember(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err := h.authService.RemoveOrganizationMember(r.Context(), user.OrganizationID, memberID, getClientIP(r))
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	err := h.authService.RemoveOrganizationMember(r.Context(), orgID, memberID, getClientIP(r))
 	if err != nil {
-		h.logger.Error("Failed to remove member", "org_id", user.OrganizationID, "member_id", memberID, "error", err)
+		h.logger.Error("Failed to remove member", "org_id", orgID, "member_id", memberID, "error", err)
 		if err.Error() == "member not found" {
 			writeError(w, errors.NewNotFoundError("Member not found"))
 			return
@@ -452,10 +498,10 @@ func (h *OrganizationHandler) RemoveMember(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		writeError(w, errors.InternalError("Failed to remove member"))
-		return
+	return
 	}
 
-	h.logger.Info("Member removed from organization", "org_id", user.OrganizationID, "member_id", memberID, "removed_by", user.ID)
+	h.logger.Info("Member removed from organization", "org_id", orgID, "member_id", memberID, "removed_by", user.ID)
 
 	response := map[string]interface{}{
 		"message":   "Member removed successfully",

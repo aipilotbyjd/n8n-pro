@@ -131,7 +131,9 @@ func (m *RBACMiddleware) RequireRole(minimumRole auth.RoleType) func(http.Handle
 				return
 			}
 
-			if !auth.IsHigherRole(user.Role, minimumRole) && user.Role != minimumRole {
+			// Convert string role to RoleType
+			userRoleType := auth.RoleType(user.Role)
+			if !auth.IsHigherRole(userRoleType, minimumRole) && userRoleType != minimumRole {
 				m.logger.Warn("RBAC role denied", 
 					"user_id", user.ID, 
 					"user_role", user.Role, 
@@ -295,8 +297,8 @@ func writeError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	
 	if apiError, ok := err.(*errors.APIError); ok {
-		w.WriteHeader(apiError.StatusCode)
-		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + apiError.Code + `"}`))
+		w.WriteHeader(apiError.HTTPStatus())
+		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + string(apiError.Code) + `"}`))
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Internal server error", "code": "INTERNAL_ERROR"}`))

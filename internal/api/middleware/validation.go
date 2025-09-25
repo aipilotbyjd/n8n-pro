@@ -528,8 +528,8 @@ func writeValidationError(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErr)
 	} else if apiError, ok := err.(*errors.APIError); ok {
-		w.WriteHeader(apiError.StatusCode)
-		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + apiError.Code + `"}`))
+		w.WriteHeader(apiError.HTTPStatus())
+		w.Write([]byte(`{"error": "` + apiError.Message + `", "code": "` + string(apiError.Code) + `"}`))
 	} else {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error": "` + err.Error() + `", "code": "VALIDATION_ERROR"}`))

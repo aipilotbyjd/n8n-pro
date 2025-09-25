@@ -3,20 +3,17 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"time"
 
-	"n8n-pro/internal/storage/postgres"
+	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5"
+
+	"n8n-pro/internal/db/postgres"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
-
 // Enhanced repository interfaces for comprehensive auth system
 
 // OrganizationRepository defines organization data access methods
@@ -35,7 +32,9 @@ type OrganizationRepository interface {
 type TeamRepository interface {
 	CreateTeam(ctx context.Context, team *Team) error
 	GetTeamByID(ctx context.Context, id string) (*Team, error)
+	GetTeamByName(ctx context.Context, organizationID, name string) (*Team, error)
 	GetTeamsByOrganization(ctx context.Context, orgID string) ([]*Team, error)
+	GetOrganizationTeams(ctx context.Context, organizationID string) ([]*Team, error)
 	UpdateTeam(ctx context.Context, team *Team) error
 	DeleteTeam(ctx context.Context, id string) error
 	AddUserToTeam(ctx context.Context, membership *TeamMembership) error
@@ -43,6 +42,11 @@ type TeamRepository interface {
 	UpdateUserTeamRole(ctx context.Context, teamID, userID string, role RoleType) error
 	GetTeamMemberships(ctx context.Context, teamID string) ([]*TeamMembership, error)
 	GetUserTeamMemberships(ctx context.Context, userID string) ([]*TeamMembership, error)
+	GetTeamMembership(ctx context.Context, teamID, userID string) (*TeamMembership, error)
+	UpdateTeamMembership(ctx context.Context, membership *TeamMembership) error
+	GetTeamMembers(ctx context.Context, teamID string, limit, offset int) ([]*TeamMembership, error)
+	GetTeamMemberCount(ctx context.Context, teamID string) (int, error)
+	GetTeamOwner(ctx context.Context, teamID string) (*TeamMembership, error)
 }
 
 // EnhancedUserRepository defines enhanced user data access methods
@@ -456,6 +460,39 @@ func (r *PostgresTeamRepository) GetTeamByID(ctx context.Context, id string) (*T
 	return &team, nil
 }
 
+// GetTeamByName retrieves a team by name within an organization
+func (r *PostgresTeamRepository) GetTeamByName(ctx context.Context, organizationID, name string) (*Team, error) {
+	if organizationID == "" || name == "" {
+		return nil, errors.NewValidationError("organization ID and team name are required")
+	}
+
+	query := `
+		SELECT t.id, t.organization_id, t.name, t.description, t.settings,
+			   t.created_at, t.updated_at, t.deleted_at,
+			   COUNT(tm.user_id) as member_count
+		FROM teams t
+		LEFT JOIN team_memberships tm ON t.id = tm.team_id
+		WHERE t.organization_id = $1 AND t.name = $2 AND t.deleted_at IS NULL
+		GROUP BY t.id, t.organization_id, t.name, t.description, t.settings,
+				 t.created_at, t.updated_at, t.deleted_at`
+
+	var team Team
+	err := r.db.QueryRow(ctx, query, organizationID, name).Scan(
+		&team.ID, &team.OrganizationID, &team.Name, &team.Description, &team.Settings,
+		&team.CreatedAt, &team.UpdatedAt, &team.DeletedAt, &team.MemberCount,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError("team not found")
+		}
+		r.logger.Error("Failed to get team by name", "error", err, "org_id", organizationID, "name", name)
+		return nil, errors.InternalError("failed to retrieve team")
+	}
+
+	return &team, nil
+}
+
 // GetTeamsByOrganization retrieves teams for an organization
 func (r *PostgresTeamRepository) GetTeamsByOrganization(ctx context.Context, orgID string) ([]*Team, error) {
 	if orgID == "" {
@@ -500,6 +537,11 @@ func (r *PostgresTeamRepository) GetTeamsByOrganization(ctx context.Context, org
 	}
 
 	return teams, nil
+}
+
+// GetOrganizationTeams retrieves teams for an organization (alias for GetTeamsByOrganization)
+func (r *PostgresTeamRepository) GetOrganizationTeams(ctx context.Context, organizationID string) ([]*Team, error) {
+	return r.GetTeamsByOrganization(ctx, organizationID)
 }
 
 // UpdateTeam updates a team
@@ -729,6 +771,176 @@ func (r *PostgresTeamRepository) GetUserTeamMemberships(ctx context.Context, use
 	return memberships, nil
 }
 
+// GetTeamMemberCount gets the count of team members
+func (r *PostgresTeamRepository) GetTeamMemberCount(ctx context.Context, teamID string) (int, error) {
+	if teamID == "" {
+		return 0, errors.NewValidationError("team ID is required")
+	}
+
+	query := `SELECT COUNT(*) FROM team_memberships tm JOIN users u ON tm.user_id = u.id WHERE tm.team_id = $1 AND u.deleted_at IS NULL`
+
+	var count int
+	err := r.db.QueryRow(ctx, query, teamID).Scan(&count)
+	if err != nil {
+		r.logger.Error("Failed to get team member count", "error", err, "team_id", teamID)
+		return 0, errors.InternalError("failed to get team member count")
+	}
+
+	return count, nil
+}
+
+// GetTeamMembers gets paginated team members
+func (r *PostgresTeamRepository) GetTeamMembers(ctx context.Context, teamID string, limit, offset int) ([]*TeamMembership, error) {
+	if teamID == "" {
+		return nil, errors.NewValidationError("team ID is required")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT tm.id, tm.team_id, tm.user_id, tm.role, tm.joined_at,
+			   u.email, u.first_name, u.last_name, u.status
+		FROM team_memberships tm
+		JOIN users u ON tm.user_id = u.id
+		WHERE tm.team_id = $1 AND u.deleted_at IS NULL
+		ORDER BY tm.joined_at
+		LIMIT $2 OFFSET $3`
+
+	rows, err := r.db.Query(ctx, query, teamID, limit, offset)
+	if err != nil {
+		r.logger.Error("Failed to get team members", "error", err, "team_id", teamID)
+		return nil, errors.InternalError("failed to retrieve team members")
+	}
+	defer rows.Close()
+
+	var memberships []*TeamMembership
+	for rows.Next() {
+		var membership TeamMembership
+		var user EnhancedUser
+
+		err := rows.Scan(
+			&membership.ID, &membership.TeamID, &membership.UserID,
+			&membership.Role, &membership.JoinedAt,
+			&user.Email, &user.FirstName, &user.LastName, &user.Status,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan team member row", "error", err)
+			return nil, errors.InternalError("failed to scan team member data")
+		}
+
+		user.ID = membership.UserID
+		membership.User = &user
+		memberships = append(memberships, &membership)
+	}
+
+	if err = rows.Err(); err != nil {
+		r.logger.Error("Error iterating team member rows", "error", err)
+		return nil, errors.InternalError("failed to iterate team member data")
+	}
+
+	return memberships, nil
+}
+
+// GetTeamOwner gets the team owner
+func (r *PostgresTeamRepository) GetTeamOwner(ctx context.Context, teamID string) (*TeamMembership, error) {
+	if teamID == "" {
+		return nil, errors.NewValidationError("team ID is required")
+	}
+
+	query := `
+		SELECT tm.id, tm.team_id, tm.user_id, tm.role, tm.joined_at,
+			   u.email, u.first_name, u.last_name, u.status
+		FROM team_memberships tm
+		JOIN users u ON tm.user_id = u.id
+		WHERE tm.team_id = $1 AND tm.role = 'owner' AND u.deleted_at IS NULL
+		LIMIT 1`
+
+	var membership TeamMembership
+	var user EnhancedUser
+
+	err := r.db.QueryRow(ctx, query, teamID).Scan(
+		&membership.ID, &membership.TeamID, &membership.UserID,
+		&membership.Role, &membership.JoinedAt,
+		&user.Email, &user.FirstName, &user.LastName, &user.Status,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError("team owner not found")
+		}
+		r.logger.Error("Failed to get team owner", "error", err, "team_id", teamID)
+		return nil, errors.InternalError("failed to retrieve team owner")
+	}
+
+	user.ID = membership.UserID
+	membership.User = &user
+	return &membership, nil
+}
+
+// GetTeamMembership gets a specific team membership
+func (r *PostgresTeamRepository) GetTeamMembership(ctx context.Context, teamID, userID string) (*TeamMembership, error) {
+	if teamID == "" || userID == "" {
+		return nil, errors.NewValidationError("team ID and user ID are required")
+	}
+
+	query := `
+		SELECT tm.id, tm.team_id, tm.user_id, tm.role, tm.joined_at,
+			   u.email, u.first_name, u.last_name, u.status
+		FROM team_memberships tm
+		JOIN users u ON tm.user_id = u.id
+		WHERE tm.team_id = $1 AND tm.user_id = $2 AND u.deleted_at IS NULL`
+
+	var membership TeamMembership
+	var user EnhancedUser
+
+	err := r.db.QueryRow(ctx, query, teamID, userID).Scan(
+		&membership.ID, &membership.TeamID, &membership.UserID,
+		&membership.Role, &membership.JoinedAt,
+		&user.Email, &user.FirstName, &user.LastName, &user.Status,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError("team membership not found")
+		}
+		r.logger.Error("Failed to get team membership", "error", err, "team_id", teamID, "user_id", userID)
+		return nil, errors.InternalError("failed to retrieve team membership")
+	}
+
+	user.ID = membership.UserID
+	membership.User = &user
+	return &membership, nil
+}
+
+// UpdateTeamMembership updates a team membership
+func (r *PostgresTeamRepository) UpdateTeamMembership(ctx context.Context, membership *TeamMembership) error {
+	if membership == nil || membership.TeamID == "" || membership.UserID == "" {
+		return errors.NewValidationError("membership with team ID and user ID are required")
+	}
+
+	query := `UPDATE team_memberships SET role = $3, joined_at = $4 WHERE team_id = $1 AND user_id = $2`
+
+	result, err := r.db.Exec(ctx, query, membership.TeamID, membership.UserID, membership.Role, membership.JoinedAt)
+	if err != nil {
+		r.logger.Error("Failed to update team membership", "error", err)
+		return errors.InternalError("failed to update team membership")
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return errors.NewNotFoundError("team membership not found")
+	}
+
+	r.logger.Info("Team membership updated successfully",
+		"team_id", membership.TeamID, "user_id", membership.UserID, "role", membership.Role)
+	return nil
+}
+
 // Hash API key for storage
 func hashAPIKey(key string) string {
 	hash := sha256.Sum256([]byte(key))
@@ -746,7 +958,7 @@ func scanNullableTimestamp(src interface{}) (*time.Time, error) {
 		return nil, err
 	}
 	
-	if !pgTime.Valid {
+	if pgTime.Status == pgtype.Null {
 		return nil, nil
 	}
 	
@@ -764,7 +976,7 @@ func scanNullableString(src interface{}) (*string, error) {
 		return nil, err
 	}
 	
-	if !pgText.Valid {
+	if pgText.Status == pgtype.Null {
 		return nil, nil
 	}
 	

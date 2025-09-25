@@ -8,7 +8,6 @@ import (
 
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/errors"
-	"n8n-pro/internal/database"
 )
 
 // AuditEventType represents the type of audit event

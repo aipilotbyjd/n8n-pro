@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"n8n-pro/internal/audit"
-	"n8n-pro/internal/database"
+	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 

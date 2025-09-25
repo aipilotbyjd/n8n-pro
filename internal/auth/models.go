@@ -226,6 +226,63 @@ const (
 // Permission represents a specific permission
 type Permission string
 
+// PermissionSet represents a set of permissions
+type PermissionSet map[Permission]bool
+
+// Has checks if the permission set has a specific permission
+func (ps PermissionSet) Has(permission Permission) bool {
+	return ps[permission] || ps[PermissionAdminAll]
+}
+
+// HasAny checks if the permission set has any of the given permissions
+func (ps PermissionSet) HasAny(permissions ...Permission) bool {
+	if ps[PermissionAdminAll] {
+		return true
+	}
+	for _, perm := range permissions {
+		if ps[perm] {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAll checks if the permission set has all of the given permissions
+func (ps PermissionSet) HasAll(permissions ...Permission) bool {
+	if ps[PermissionAdminAll] {
+		return true
+	}
+	for _, perm := range permissions {
+		if !ps[perm] {
+			return false
+		}
+	}
+	return true
+}
+
+// Add adds permissions to the set
+func (ps PermissionSet) Add(permissions ...Permission) {
+	for _, perm := range permissions {
+		ps[perm] = true
+	}
+}
+
+// Remove removes permissions from the set
+func (ps PermissionSet) Remove(permissions ...Permission) {
+	for _, perm := range permissions {
+		delete(ps, perm)
+	}
+}
+
+// ToSlice converts permission set to slice of strings
+func (ps PermissionSet) ToSlice() []string {
+	var perms []string
+	for perm := range ps {
+		perms = append(perms, string(perm))
+	}
+	return perms
+}
+
 const (
 	// User management
 	PermissionUsersRead   Permission = "users:read"
@@ -264,6 +321,15 @@ const (
 	PermissionAuditLogs    Permission = "audit_logs:read"
 	PermissionSystemConfig Permission = "system:config"
 	PermissionAPIKeys      Permission = "api_keys:manage"
+	PermissionAdminAll     Permission = "admin:all"
+	
+	// Organization member management
+	PermissionOrgManageMembers Permission = "organization:manage_members"
+	PermissionOrgInviteUsers   Permission = "organization:invite_users"
+	
+	// Team member management
+	PermissionTeamManageMembers Permission = "teams:manage_members"
+	PermissionTeamInviteUsers   Permission = "teams:invite_users"
 )
 
 // UserProfile contains user profile information
@@ -378,10 +444,13 @@ type Session struct {
 }
 
 // GetRolePermissions returns default permissions for each role
-func GetRolePermissions(role RoleType) []Permission {
+func GetRolePermissions(role RoleType) PermissionSet {
+	perms := make(PermissionSet)
+
 	switch role {
 	case RoleOwner:
-		return []Permission{
+		perms.Add(
+			PermissionAdminAll, // Owner has all permissions
 			PermissionUsersRead, PermissionUsersWrite, PermissionUsersDelete,
 			PermissionWorkflowsRead, PermissionWorkflowsWrite, PermissionWorkflowsDelete, PermissionWorkflowsShare,
 			PermissionExecutionsRead, PermissionExecutionsWrite, PermissionExecutionsDelete,
@@ -389,9 +458,9 @@ func GetRolePermissions(role RoleType) []Permission {
 			PermissionOrganizationRead, PermissionOrganizationWrite, PermissionOrganizationSettings, PermissionOrganizationBilling,
 			PermissionTeamsRead, PermissionTeamsWrite, PermissionTeamsDelete,
 			PermissionAuditLogs, PermissionSystemConfig, PermissionAPIKeys,
-		}
+		)
 	case RoleAdmin:
-		return []Permission{
+		perms.Add(
 			PermissionUsersRead, PermissionUsersWrite,
 			PermissionWorkflowsRead, PermissionWorkflowsWrite, PermissionWorkflowsDelete, PermissionWorkflowsShare,
 			PermissionExecutionsRead, PermissionExecutionsWrite, PermissionExecutionsDelete,
@@ -399,31 +468,31 @@ func GetRolePermissions(role RoleType) []Permission {
 			PermissionOrganizationRead,
 			PermissionTeamsRead, PermissionTeamsWrite,
 			PermissionAuditLogs, PermissionAPIKeys,
-		}
+		)
 	case RoleMember:
-		return []Permission{
+		perms.Add(
 			PermissionWorkflowsRead, PermissionWorkflowsWrite, PermissionWorkflowsShare,
 			PermissionExecutionsRead, PermissionExecutionsWrite,
 			PermissionCredentialsRead, PermissionCredentialsWrite, PermissionCredentialsShare,
-		}
+		)
 	case RoleViewer:
-		return []Permission{
+		perms.Add(
 			PermissionWorkflowsRead,
 			PermissionExecutionsRead,
 			PermissionCredentialsRead,
-		}
+		)
 	case RoleGuest:
-		return []Permission{
+		perms.Add(
 			PermissionWorkflowsRead,
-		}
+		)
 	case RoleAPIOnly:
-		return []Permission{
+		perms.Add(
 			PermissionWorkflowsRead, PermissionWorkflowsWrite,
 			PermissionExecutionsRead, PermissionExecutionsWrite,
-		}
-	default:
-		return []Permission{}
+		)
 	}
+
+	return perms
 }
 
 // GetPlanLimits returns default limits for each plan

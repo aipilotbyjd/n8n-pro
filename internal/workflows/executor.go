@@ -11,19 +11,87 @@ import (
 	"n8n-pro/pkg/metrics"
 )
 
+// NodeRegistry defines how the executor can access node executors
+type NodeRegistry interface {
+	CreateExecutor(nodeType string) (NodeExecutor, error)
+}
+
+// NodeExecutor defines the interface for executing workflow nodes
+type NodeExecutor interface {
+	Execute(ctx context.Context, parameters map[string]interface{}, inputData interface{}) (interface{}, error)
+}
+
+
+
+// SimpleNodeRegistry provides a simple implementation for testing/development
+type SimpleNodeRegistry struct {
+	executors map[string]NodeExecutor
+}
+
+// NewNodeRegistry creates a simple node registry for testing
+func NewNodeRegistry() NodeRegistry {
+	registry := &SimpleNodeRegistry{
+		executors: make(map[string]NodeExecutor),
+	}
+	// Register real node implementations
+	registry.executors["http"] = &MockHTTPExecutor{} // Keep mock for backward compatibility
+	registry.executors["n8n-nodes-base.httpRequest"] = &MockHTTPExecutor{}
+	registry.executors["transform"] = &MockTransformExecutor{} // Keep mock for backward compatibility
+	return registry
+}
+
+// CreateExecutor creates a node executor
+func (r *SimpleNodeRegistry) CreateExecutor(nodeType string) (NodeExecutor, error) {
+	if executor, exists := r.executors[nodeType]; exists {
+		return executor, nil
+	}
+	return nil, fmt.Errorf("node type %s not found", nodeType)
+}
+
+// Mock node executors for testing
+type MockHTTPExecutor struct{}
+
+func (m *MockHTTPExecutor) Execute(ctx context.Context, parameters map[string]interface{}, inputData interface{}) (interface{}, error) {
+	url, _ := parameters["url"].(string)
+	method, _ := parameters["method"].(string)
+	if method == "" {
+		method = "GET"
+	}
+	return map[string]interface{}{
+		"status":     200,
+		"data":       fmt.Sprintf("Mock %s request to %s", method, url),
+		"success":    true,
+		"timestamp":  time.Now().Unix(),
+	}, nil
+}
+
+type MockTransformExecutor struct{}
+
+func (m *MockTransformExecutor) Execute(ctx context.Context, parameters map[string]interface{}, inputData interface{}) (interface{}, error) {
+	operation, _ := parameters["operation"].(string)
+	return map[string]interface{}{
+		"operation": operation,
+		"input":     inputData,
+		"result":    fmt.Sprintf("Transformed data with operation: %s", operation),
+		"timestamp": time.Now().Unix(),
+	}, nil
+}
+
 // DefaultExecutor implements the Executor interface
 type DefaultExecutor struct {
-	repo    Repository
-	logger  logger.Logger
-	metrics *metrics.Metrics
+	repo         Repository
+	nodeRegistry NodeRegistry
+	logger       logger.Logger
+	metrics      *metrics.Metrics
 }
 
 // NewDefaultExecutor creates a new default executor
 func NewDefaultExecutor(repo Repository) Executor {
 	return &DefaultExecutor{
-		repo:    repo,
-		logger:  logger.New("workflow-executor"),
-		metrics: metrics.GetGlobal(),
+		repo:         repo,
+		nodeRegistry: NewNodeRegistry(),
+		logger:       logger.New("workflow-executor"),
+		metrics:      metrics.GetGlobal(),
 	}
 }
 
@@ -405,16 +473,49 @@ func (e *DefaultExecutor) executeNode(node *ExecutionNode, execCtx *ExecutionCon
 		execution.NodesExecuted++
 	}()
 
-	// Simple mock node execution
-	node.Status = NodeStatusCompleted
-	node.OutputData = map[string]interface{}{
-		"success": true,
-		"message": "Node executed successfully",
-		"timestamp": time.Now().Unix(),
+	// Get node executor from registry
+	nodeExecutor, err := e.nodeRegistry.CreateExecutor(string(node.Type))
+	if err != nil {
+		node.Status = NodeStatusFailed
+		node.ErrorMessage = fmt.Sprintf("No executor found for node type: %s", node.Type)
+		e.logger.ErrorContext(execCtx.Context, "Node execution failed - no executor",
+			"node_id", node.ID,
+			"node_type", node.Type,
+			"error", err,
+		)
+		return err
 	}
 
-	// Store output data in context
-	execCtx.SetNodeData(node.ID, node.OutputData)
+	// Prepare node input data
+	inputData := e.prepareNodeInputData(node, execCtx)
+	node.InputData = inputData
+
+	// Execute the node
+	outputData, err := nodeExecutor.Execute(execCtx.Context, node.Parameters, inputData)
+
+	if err != nil {
+		node.Status = NodeStatusFailed
+		node.ErrorMessage = err.Error()
+		e.logger.ErrorContext(execCtx.Context, "Node execution failed",
+			"node_id", node.ID,
+			"error", err,
+		)
+		return err
+	}
+
+	node.Status = NodeStatusCompleted
+	
+	// Convert output data to map[string]interface{} with type assertion
+	if outputMap, ok := outputData.(map[string]interface{}); ok {
+		node.OutputData = outputMap
+		// Store output data in context
+		execCtx.SetNodeData(node.ID, outputMap)
+	} else {
+		// If not a map, wrap it
+		wrappedOutput := map[string]interface{}{"result": outputData}
+		node.OutputData = wrappedOutput
+		execCtx.SetNodeData(node.ID, wrappedOutput)
+	}
 
 	e.logger.InfoContext(execCtx.Context, "Node execution completed",
 		"node_id", node.ID,
@@ -489,8 +590,23 @@ type ExecutionNode struct {
 	StartTime    *time.Time             `json:"start_time,omitempty"`
 	EndTime      *time.Time             `json:"end_time,omitempty"`
 	Duration     *int64                 `json:"duration,omitempty"`
+	InputData    map[string]interface{} `json:"input_data,omitempty"`
 	OutputData   map[string]interface{} `json:"output_data,omitempty"`
 	ErrorMessage string                 `json:"error_message,omitempty"`
+}
+
+// NodeExecutionContext provides context for node execution
+type NodeExecutionContext struct {
+	NodeID      string                 `json:"node_id"`
+	NodeName    string                 `json:"node_name"`
+	NodeType    string                 `json:"node_type"`
+	Parameters  map[string]interface{} `json:"parameters"`
+	InputData   map[string]interface{} `json:"input_data"`
+	ExecutionID string                 `json:"execution_id"`
+	WorkflowID  string                 `json:"workflow_id"`
+	TeamID      string                 `json:"team_id"`
+	Variables   map[string]interface{} `json:"variables"`
+	Logger      logger.Logger          `json:"-"`
 }
 
 // ExecutionConnection represents a connection in execution

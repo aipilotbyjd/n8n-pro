@@ -30,7 +30,7 @@ type UpdateUserRequest struct {
 	Email string `json:"email,omitempty"`
 }
 
-type ChangePasswordRequest struct {
+type UserChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" validate:"required"`
 	NewPassword     string `json:"new_password" validate:"required,min=8"`
 }
@@ -149,7 +149,7 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req ChangePasswordRequest
+	var req UserChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, errors.NewValidationError("Invalid request body: "+err.Error()))
 		return

@@ -3,221 +3,11 @@ package auth
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"n8n-pro/pkg/errors"
 )
 
-// Permission represents a specific permission
-type Permission string
-
-// Core permissions
-const (
-	// User permissions
-	PermissionUserRead   Permission = "user:read"
-	PermissionUserWrite  Permission = "user:write"
-	PermissionUserDelete Permission = "user:delete"
-
-	// Organization permissions
-	PermissionOrgRead      Permission = "organization:read"
-	PermissionOrgWrite     Permission = "organization:write"
-	PermissionOrgDelete    Permission = "organization:delete"
-	PermissionOrgManageMembers Permission = "organization:manage_members"
-	PermissionOrgInviteUsers   Permission = "organization:invite_users"
-
-	// Team permissions
-	PermissionTeamRead         Permission = "team:read"
-	PermissionTeamWrite        Permission = "team:write"
-	PermissionTeamDelete       Permission = "team:delete"
-	PermissionTeamManageMembers Permission = "team:manage_members"
-	PermissionTeamInviteUsers  Permission = "team:invite_users"
-
-	// Workflow permissions
-	PermissionWorkflowRead    Permission = "workflow:read"
-	PermissionWorkflowWrite   Permission = "workflow:write"
-	PermissionWorkflowDelete  Permission = "workflow:delete"
-	PermissionWorkflowExecute Permission = "workflow:execute"
-	PermissionWorkflowPublish Permission = "workflow:publish"
-
-	// Execution permissions
-	PermissionExecutionRead   Permission = "execution:read"
-	PermissionExecutionWrite  Permission = "execution:write"
-	PermissionExecutionDelete Permission = "execution:delete"
-	PermissionExecutionRetry  Permission = "execution:retry"
-
-	// Credential permissions
-	PermissionCredentialRead   Permission = "credential:read"
-	PermissionCredentialWrite  Permission = "credential:write"
-	PermissionCredentialDelete Permission = "credential:delete"
-	PermissionCredentialUse    Permission = "credential:use"
-
-	// Node/Integration permissions
-	PermissionNodeRead    Permission = "node:read"
-	PermissionNodeInstall Permission = "node:install"
-	PermissionNodeRemove  Permission = "node:remove"
-
-	// API Key permissions
-	PermissionAPIKeyRead   Permission = "api_key:read"
-	PermissionAPIKeyWrite  Permission = "api_key:write"
-	PermissionAPIKeyDelete Permission = "api_key:delete"
-
-	// Audit permissions
-	PermissionAuditRead Permission = "audit:read"
-
-	// Settings permissions
-	PermissionSettingsRead  Permission = "settings:read"
-	PermissionSettingsWrite Permission = "settings:write"
-
-	// Admin permissions (super permissions)
-	PermissionAdminAll Permission = "admin:all"
-)
-
-// PermissionSet represents a set of permissions
-type PermissionSet map[Permission]bool
-
-// Has checks if the permission set has a specific permission
-func (ps PermissionSet) Has(permission Permission) bool {
-	return ps[permission] || ps[PermissionAdminAll]
-}
-
-// HasAny checks if the permission set has any of the given permissions
-func (ps PermissionSet) HasAny(permissions ...Permission) bool {
-	if ps[PermissionAdminAll] {
-		return true
-	}
-	for _, perm := range permissions {
-		if ps[perm] {
-			return true
-		}
-	}
-	return false
-}
-
-// HasAll checks if the permission set has all of the given permissions
-func (ps PermissionSet) HasAll(permissions ...Permission) bool {
-	if ps[PermissionAdminAll] {
-		return true
-	}
-	for _, perm := range permissions {
-		if !ps[perm] {
-			return false
-		}
-	}
-	return true
-}
-
-// Add adds permissions to the set
-func (ps PermissionSet) Add(permissions ...Permission) {
-	for _, perm := range permissions {
-		ps[perm] = true
-	}
-}
-
-// Remove removes permissions from the set
-func (ps PermissionSet) Remove(permissions ...Permission) {
-	for _, perm := range permissions {
-		delete(ps, perm)
-	}
-}
-
-// ToSlice converts permission set to slice of strings
-func (ps PermissionSet) ToSlice() []string {
-	var perms []string
-	for perm := range ps {
-		perms = append(perms, string(perm))
-	}
-	return perms
-}
-
-// GetRolePermissions returns the permissions for a given role
-func GetRolePermissions(role RoleType) PermissionSet {
-	permissions := make(PermissionSet)
-
-	switch role {
-	case RoleOwner:
-		// Owner has all permissions
-		permissions[PermissionAdminAll] = true
-
-	case RoleAdmin:
-		// Admin permissions - almost everything except organization deletion
-		permissions.Add(
-			// User management
-			PermissionUserRead, PermissionUserWrite, PermissionUserDelete,
-			// Organization management (except delete)
-			PermissionOrgRead, PermissionOrgWrite, PermissionOrgManageMembers, PermissionOrgInviteUsers,
-			// Team management
-			PermissionTeamRead, PermissionTeamWrite, PermissionTeamDelete,
-			PermissionTeamManageMembers, PermissionTeamInviteUsers,
-			// Workflow management
-			PermissionWorkflowRead, PermissionWorkflowWrite, PermissionWorkflowDelete,
-			PermissionWorkflowExecute, PermissionWorkflowPublish,
-			// Execution management
-			PermissionExecutionRead, PermissionExecutionWrite, PermissionExecutionDelete,
-			PermissionExecutionRetry,
-			// Credential management
-			PermissionCredentialRead, PermissionCredentialWrite, PermissionCredentialDelete,
-			PermissionCredentialUse,
-			// Node management
-			PermissionNodeRead, PermissionNodeInstall, PermissionNodeRemove,
-			// API Key management
-			PermissionAPIKeyRead, PermissionAPIKeyWrite, PermissionAPIKeyDelete,
-			// Audit logs
-			PermissionAuditRead,
-			// Settings
-			PermissionSettingsRead, PermissionSettingsWrite,
-		)
-
-	case RoleMember:
-		// Member permissions - can read most things, write workflows/executions
-		permissions.Add(
-			// User (self only)
-			PermissionUserRead,
-			// Organization (read only)
-			PermissionOrgRead,
-			// Team (read only for own teams)
-			PermissionTeamRead,
-			// Workflow management (full access)
-			PermissionWorkflowRead, PermissionWorkflowWrite, PermissionWorkflowDelete,
-			PermissionWorkflowExecute, PermissionWorkflowPublish,
-			// Execution management
-			PermissionExecutionRead, PermissionExecutionWrite, PermissionExecutionRetry,
-			// Credential (limited access)
-			PermissionCredentialRead, PermissionCredentialWrite, PermissionCredentialUse,
-			// Node (read only)
-			PermissionNodeRead,
-			// API Key (own keys only)
-			PermissionAPIKeyRead, PermissionAPIKeyWrite,
-			// Settings (read only)
-			PermissionSettingsRead,
-		)
-
-	case RoleViewer:
-		// Viewer permissions - mostly read-only
-		permissions.Add(
-			// User (self only)
-			PermissionUserRead,
-			// Organization (read only)
-			PermissionOrgRead,
-			// Team (read only for own teams)
-			PermissionTeamRead,
-			// Workflow (read and execute only)
-			PermissionWorkflowRead, PermissionWorkflowExecute,
-			// Execution (read only)
-			PermissionExecutionRead,
-			// Credential (use only)
-			PermissionCredentialUse,
-			// Node (read only)
-			PermissionNodeRead,
-			// Settings (read only)
-			PermissionSettingsRead,
-		)
-
-	default:
-		// No permissions for unknown roles
-	}
-
-	return permissions
-}
+// Permission types and PermissionSet are defined in models.go
 
 // RBAC service for checking permissions
 type RBACService struct {
@@ -356,8 +146,8 @@ func (r *RBACService) GetTeamUserPermissions(ctx context.Context, userID, teamID
 // CanAccessResource checks if a user can access a resource based on ownership and permissions
 func (r *RBACService) CanAccessResource(ctx context.Context, userID, resourceOwnerID string, permission Permission) error {
 	// If user owns the resource, they can access it (with basic read permission)
-	if userID == resourceOwnerID && (permission == PermissionWorkflowRead || 
-		permission == PermissionExecutionRead || permission == PermissionCredentialRead) {
+	if userID == resourceOwnerID && (permission == PermissionWorkflowsRead || 
+		permission == PermissionExecutionsRead || permission == PermissionCredentialsRead) {
 		return nil
 	}
 
@@ -457,29 +247,18 @@ func GetMinimumRoleForPermission(permission Permission) RoleType {
 	return RoleOwner
 }
 
-// convertPermissionsToScopes converts permission set to JWT scopes (used in JWT tokens)
-func convertPermissionsToScopes(permissions PermissionSet) []string {
-	return permissions.ToSlice()
-}
+// convertPermissionsToScopes is defined in enhanced_service.go
 
 // Helper function to check if a permission string is valid
 func IsValidPermission(permissionStr string) bool {
 	validPermissions := []Permission{
-		PermissionUserRead, PermissionUserWrite, PermissionUserDelete,
-		PermissionOrgRead, PermissionOrgWrite, PermissionOrgDelete,
-		PermissionOrgManageMembers, PermissionOrgInviteUsers,
-		PermissionTeamRead, PermissionTeamWrite, PermissionTeamDelete,
-		PermissionTeamManageMembers, PermissionTeamInviteUsers,
-		PermissionWorkflowRead, PermissionWorkflowWrite, PermissionWorkflowDelete,
-		PermissionWorkflowExecute, PermissionWorkflowPublish,
-		PermissionExecutionRead, PermissionExecutionWrite, PermissionExecutionDelete,
-		PermissionExecutionRetry,
-		PermissionCredentialRead, PermissionCredentialWrite, PermissionCredentialDelete,
-		PermissionCredentialUse,
-		PermissionNodeRead, PermissionNodeInstall, PermissionNodeRemove,
-		PermissionAPIKeyRead, PermissionAPIKeyWrite, PermissionAPIKeyDelete,
-		PermissionAuditRead,
-		PermissionSettingsRead, PermissionSettingsWrite,
+		PermissionUsersRead, PermissionUsersWrite, PermissionUsersDelete,
+		PermissionWorkflowsRead, PermissionWorkflowsWrite, PermissionWorkflowsDelete, PermissionWorkflowsShare,
+		PermissionExecutionsRead, PermissionExecutionsWrite, PermissionExecutionsDelete,
+		PermissionCredentialsRead, PermissionCredentialsWrite, PermissionCredentialsDelete, PermissionCredentialsShare,
+		PermissionOrganizationRead, PermissionOrganizationWrite, PermissionOrganizationSettings, PermissionOrganizationBilling,
+		PermissionTeamsRead, PermissionTeamsWrite, PermissionTeamsDelete,
+		PermissionAuditLogs, PermissionSystemConfig, PermissionAPIKeys,
 		PermissionAdminAll,
 	}
 

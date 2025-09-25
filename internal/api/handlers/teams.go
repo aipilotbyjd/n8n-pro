@@ -27,15 +27,15 @@ func NewTeamsHandler(service *teams.Service, logger logger.Logger) *TeamsHandler
 	}
 }
 
-// CreateTeamRequest represents the request to create a team
-type CreateTeamRequest struct {
+// TeamsCreateRequest represents the request to create a team (teams service)
+type TeamsCreateRequest struct {
 	Name        string `json:"name" validate:"required,min=1,max=100"`
 	Description string `json:"description,omitempty" validate:"max=500"`
 	PlanType    string `json:"plan_type,omitempty" validate:"oneof=free pro enterprise"`
 }
 
-// UpdateTeamRequest represents the request to update a team
-type UpdateTeamRequest struct {
+// TeamsUpdateRequest represents the request to update a team (teams service)
+type TeamsUpdateRequest struct {
 	Name        *string `json:"name,omitempty" validate:"omitempty,min=1,max=100"`
 	Description *string `json:"description,omitempty" validate:"omitempty,max=500"`
 	PlanType    *string `json:"plan_type,omitempty" validate:"omitempty,oneof=free pro enterprise"`
@@ -48,8 +48,8 @@ type AddMemberRequest struct {
 	Role   string `json:"role" validate:"required,oneof=admin member viewer"`
 }
 
-// TeamResponse represents a team in API responses
-type TeamResponse struct {
+// TeamsResponse represents a team in API responses (teams service)
+type TeamsResponse struct {
 	ID          string                   `json:"id"`
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
@@ -57,14 +57,14 @@ type TeamResponse struct {
 	PlanType    string                   `json:"plan_type"`
 	Active      bool                     `json:"active"`
 	Settings    map[string]interface{}   `json:"settings"`
-	Members     []TeamMemberResponse     `json:"members,omitempty"`
-	Stats       *TeamStatsResponse       `json:"stats,omitempty"`
+	Members     []TeamsMemberResponse    `json:"members,omitempty"`
+	Stats       *TeamsStatsResponse      `json:"stats,omitempty"`
 	CreatedAt   string                   `json:"created_at"`
 	UpdatedAt   string                   `json:"updated_at"`
 }
 
-// TeamMemberResponse represents a team member in API responses
-type TeamMemberResponse struct {
+// TeamsMemberResponse represents a team member in API responses (teams service)
+type TeamsMemberResponse struct {
 	ID       string `json:"id"`
 	TeamID   string `json:"team_id"`
 	UserID   string `json:"user_id"`
@@ -72,8 +72,8 @@ type TeamMemberResponse struct {
 	JoinedAt string `json:"joined_at"`
 }
 
-// TeamStatsResponse represents team statistics
-type TeamStatsResponse struct {
+// TeamsStatsResponse represents team statistics (teams service)
+type TeamsStatsResponse struct {
 	MemberCount      int `json:"member_count"`
 	WorkflowCount    int `json:"workflow_count"`
 	ExecutionCount   int `json:"execution_count"`
@@ -82,7 +82,7 @@ type TeamStatsResponse struct {
 
 // CreateTeam creates a new team
 func (h *TeamsHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
-	var req CreateTeamRequest
+	var req TeamsCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in create team request", "error", err)
 		writeError(w, errors.NewValidationError("Invalid JSON format"))
@@ -159,7 +159,7 @@ func (h *TeamsHandler) ListTeams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert to response format
-	responses := make([]TeamResponse, len(teams))
+	responses := make([]TeamsResponse, len(teams))
 	for i, team := range teams {
 		responses[i] = h.teamToResponse(team)
 	}
@@ -218,7 +218,7 @@ func (h *TeamsHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdateTeamRequest
+	var req TeamsUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn("Invalid JSON in update team request", "error", err)
 		writeError(w, errors.NewValidationError("Invalid JSON format"))
@@ -398,7 +398,7 @@ func (h *TeamsHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 
 // Helper methods
 
-func (h *TeamsHandler) teamToResponse(team *teams.Team) TeamResponse {
+func (h *TeamsHandler) teamToResponse(team *teams.Team) TeamsResponse {
 	var settings map[string]interface{}
 	if team.Settings != "" {
 		json.Unmarshal([]byte(team.Settings), &settings)
@@ -407,7 +407,7 @@ func (h *TeamsHandler) teamToResponse(team *teams.Team) TeamResponse {
 		settings = make(map[string]interface{})
 	}
 
-	return TeamResponse{
+return TeamsResponse{
 		ID:          team.ID,
 		Name:        team.Name,
 		Description: team.Description,
@@ -420,8 +420,8 @@ func (h *TeamsHandler) teamToResponse(team *teams.Team) TeamResponse {
 	}
 }
 
-func (h *TeamsHandler) memberToResponse(member *teams.TeamMember) TeamMemberResponse {
-	return TeamMemberResponse{
+func (h *TeamsHandler) memberToResponse(member *teams.TeamMember) TeamsMemberResponse {
+return TeamsMemberResponse{
 		ID:       member.ID,
 		TeamID:   member.TeamID,
 		UserID:   member.UserID,
@@ -430,8 +430,8 @@ func (h *TeamsHandler) memberToResponse(member *teams.TeamMember) TeamMemberResp
 	}
 }
 
-func (h *TeamsHandler) membersToResponse(members []*teams.TeamMember) []TeamMemberResponse {
-	responses := make([]TeamMemberResponse, len(members))
+func (h *TeamsHandler) membersToResponse(members []*teams.TeamMember) []TeamsMemberResponse {
+responses := make([]TeamsMemberResponse, len(members))
 	for i, member := range members {
 		responses[i] = h.memberToResponse(member)
 	}

@@ -246,6 +246,11 @@ func NewExecutionError(message string) *AppError {
 	return New(ErrorTypeExecution, CodeWorkflowExecution, message)
 }
 
+// NewInternalError creates an internal server error with a simple message
+func NewInternalError(message string) *AppError {
+	return New(ErrorTypeInternal, CodeInternal, message)
+}
+
 // NewHTTPError creates an HTTP error
 type HTTPError struct {
 	*AppError
@@ -302,6 +307,16 @@ func ExternalError(service string, err error) *AppError {
 // TimeoutError creates a timeout error
 func TimeoutError(operation string) *AppError {
 	return New(ErrorTypeTimeout, CodeTimeout, fmt.Sprintf("operation %s timed out", operation))
+}
+
+// NewTimeoutError creates a timeout error with a simple message
+func NewTimeoutError(message string) *AppError {
+	return New(ErrorTypeTimeout, CodeTimeout, message)
+}
+
+// NewRateLimitError creates a rate limit error with a simple message
+func NewRateLimitError(message string) *AppError {
+	return New(ErrorTypeRateLimit, CodeRateLimit, message)
 }
 
 // DatabaseError creates a database error
@@ -381,6 +396,9 @@ func (e *AppError) SetRetryable(retryable bool) *AppError {
 	e.retryableSet = true
 	return e
 }
+
+// APIError is an alias for AppError to maintain compatibility
+type APIError = AppError
 
 // captureStackTrace captures the current stack trace
 func captureStackTrace() string {

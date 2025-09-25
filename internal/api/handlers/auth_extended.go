@@ -221,10 +221,8 @@ func (h *AuthHandler) GetUserSessions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Add location if available
-		if session.Metadata != nil {
-			if location, ok := session.Metadata["location"].(string); ok {
-				sessionResp.Location = &location
-			}
+		if session.Location != nil {
+			sessionResp.Location = session.Location
 		}
 
 		sessionResponses = append(sessionResponses, sessionResp)
@@ -423,7 +421,11 @@ func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &parsedTime
 	}
 
-	apiKey, key, err := h.authService.CreateAPIKey(r.Context(), user.ID, req.Name, req.Description, req.Permissions, expiresAt, getClientIP(r))
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+	apiKey, key, err := h.authService.CreateAPIKey(r.Context(), user.ID, req.Name, description, req.Permissions, expiresAt)
 	if err != nil {
 		h.logger.Error("Failed to create API key", "user_id", user.ID, "error", err)
 		writeError(w, errors.InternalError("Failed to create API key"))
@@ -432,12 +434,18 @@ func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("API key created", "user_id", user.ID, "api_key_id", apiKey.ID)
 
+	// Convert permissions to strings
+	permissionStrs := make([]string, len(apiKey.Permissions))
+	for i, perm := range apiKey.Permissions {
+		permissionStrs[i] = string(perm)
+	}
+
 	response := map[string]interface{}{
 		"id":          apiKey.ID,
 		"name":        apiKey.Name,
-		"description": apiKey.Description,
+		"description": nil, // API key model doesn't have description field
 		"key":         key, // Only returned on creation
-		"permissions": apiKey.Permissions,
+		"permissions": permissionStrs,
 		"expires_at":  apiKey.ExpiresAt,
 		"created_at":  apiKey.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		"message":     "API key created. Store it securely - it won't be shown again.",
@@ -454,7 +462,18 @@ func (h *AuthHandler) GetUserAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKeys, err := h.authService.GetUserAPIKeys(r.Context(), user.ID)
+	// Parse pagination parameters
+	query := r.URL.Query()
+	page, _ := strconv.Atoi(query.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	apiKeys, total, err := h.authService.GetUserAPIKeys(r.Context(), user.ID, page, limit)
 	if err != nil {
 		h.logger.Error("Failed to get API keys", "user_id", user.ID, "error", err)
 		writeError(w, errors.InternalError("Failed to get API keys"))
@@ -475,21 +494,33 @@ func (h *AuthHandler) GetUserAPIKeys(w http.ResponseWriter, r *http.Request) {
 			lastUsedStr = &str
 		}
 
+		// Convert permissions to strings
+		permissionStrs := make([]string, len(key.Permissions))
+		for i, perm := range key.Permissions {
+			permissionStrs[i] = string(perm)
+		}
+
 		keyResponses = append(keyResponses, APIKeyResponse{
 			ID:          key.ID,
 			Name:        key.Name,
-			Description: key.Description,
-			KeyPreview:  key.KeyHash[:8] + "...", // Show first 8 chars
-			Permissions: key.Permissions,
+			Description: nil, // API key model doesn't have description field
+			KeyPreview:  key.Key[:8] + "...", // Show first 8 chars
+			Permissions: permissionStrs,
 			LastUsedAt:  lastUsedStr,
 			ExpiresAt:   expiresAtStr,
 			CreatedAt:   key.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt:   key.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:   time.Now().Format("2006-01-02T15:04:05Z07:00"), // Model doesn't have UpdatedAt
 		})
 	}
 
 	writeSuccess(w, http.StatusOK, map[string]interface{}{
 		"api_keys": keyResponses,
+		"pagination": map[string]interface{}{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": (total + limit - 1) / limit,
+		},
 	})
 }
 
@@ -508,7 +539,7 @@ func (h *AuthHandler) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey, err := h.authService.GetAPIKey(r.Context(), keyID)
+	apiKey, err := h.authService.GetAPIKey(r.Context(), keyID, user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get API key", "user_id", user.ID, "key_id", keyID, "error", err)
 		writeError(w, errors.NewNotFoundError("API key not found"))
@@ -533,16 +564,22 @@ func (h *AuthHandler) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 		lastUsedStr = &str
 	}
 
+	// Convert permissions to strings
+	permissionStrs := make([]string, len(apiKey.Permissions))
+	for i, perm := range apiKey.Permissions {
+		permissionStrs[i] = string(perm)
+	}
+
 	response := APIKeyResponse{
 		ID:          apiKey.ID,
 		Name:        apiKey.Name,
-		Description: apiKey.Description,
-		KeyPreview:  apiKey.KeyHash[:8] + "...",
-		Permissions: apiKey.Permissions,
+		Description: nil, // API key model doesn't have description field
+		KeyPreview:  apiKey.Key[:8] + "...",
+		Permissions: permissionStrs,
 		LastUsedAt:  lastUsedStr,
 		ExpiresAt:   expiresAtStr,
 		CreatedAt:   apiKey.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:   apiKey.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:   time.Now().Format("2006-01-02T15:04:05Z07:00"), // Model doesn't have UpdatedAt
 	}
 
 	writeSuccess(w, http.StatusOK, response)
@@ -569,7 +606,16 @@ func (h *AuthHandler) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.authService.UpdateAPIKey(r.Context(), keyID, user.ID, req.Name, req.Description, req.Permissions)
+	name := ""
+	if req.Name != nil {
+		name = *req.Name
+	}
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
+	err := h.authService.UpdateAPIKey(r.Context(), keyID, user.ID, name, description, req.Permissions)
 	if err != nil {
 		h.logger.Error("Failed to update API key", "user_id", user.ID, "key_id", keyID, "error", err)
 		writeError(w, errors.InternalError("Failed to update API key"))
@@ -635,9 +681,14 @@ func (h *AuthHandler) GetOrganizationAPIKeys(w http.ResponseWriter, r *http.Requ
 		limit = 20
 	}
 
-	apiKeys, total, err := h.authService.GetOrganizationAPIKeys(r.Context(), user.OrganizationID, page, limit)
+	// For now, use team ID as organization ID placeholder
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+	apiKeys, total, err := h.authService.GetOrganizationAPIKeys(r.Context(), orgID, page, limit)
 	if err != nil {
-		h.logger.Error("Failed to get organization API keys", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to get organization API keys", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to get organization API keys"))
 		return
 	}
@@ -656,16 +707,22 @@ func (h *AuthHandler) GetOrganizationAPIKeys(w http.ResponseWriter, r *http.Requ
 			lastUsedStr = &str
 		}
 
+		// Convert permissions to strings
+		permissionStrs := make([]string, len(key.Permissions))
+		for i, perm := range key.Permissions {
+			permissionStrs[i] = string(perm)
+		}
+
 		keyResponses = append(keyResponses, APIKeyResponse{
 			ID:          key.ID,
 			Name:        key.Name,
-			Description: key.Description,
-			KeyPreview:  key.KeyHash[:8] + "...",
-			Permissions: key.Permissions,
+			Description: nil, // API key model doesn't have description field
+			KeyPreview:  key.Key[:8] + "...",
+			Permissions: permissionStrs,
 			LastUsedAt:  lastUsedStr,
 			ExpiresAt:   expiresAtStr,
 			CreatedAt:   key.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt:   key.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:   time.Now().Format("2006-01-02T15:04:05Z07:00"), // Model doesn't have UpdatedAt
 		})
 	}
 

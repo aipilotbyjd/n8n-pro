@@ -7,21 +7,34 @@ import (
 	"strconv"
 	"strings"
 
-	"n8n-pro/internal/auth"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 )
 
+// User represents a user for validation purposes
+type User struct {
+	ID     string `json:"id"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	TeamID string `json:"team_id"`
+	Active bool   `json:"active"`
+}
+
+// UserService defines the interface for user operations needed by the validator
+type UserService interface {
+	GetUserByID(ctx context.Context, userID string) (*User, error)
+}
+
 // DefaultValidator implements the Validator interface
 type DefaultValidator struct {
-	authService *auth.Service
+	userService UserService
 	logger      logger.Logger
 }
 
 // NewDefaultValidator creates a new default validator
-func NewDefaultValidator(authService *auth.Service) Validator {
+func NewDefaultValidator(userService UserService) Validator {
 	return &DefaultValidator{
-		authService: authService,
+		userService: userService,
 		logger:      logger.New("workflow-validator"),
 	}
 }
@@ -136,7 +149,7 @@ func (v *DefaultValidator) ValidatePermissions(ctx context.Context, userID, team
 	}
 
 	// Get user details
-	user, err := v.authService.GetUserByID(ctx, userID)
+	user, err := v.userService.GetUserByID(ctx, userID)
 	if err != nil {
 		v.logger.Error("Failed to get user for permission validation", "user_id", userID, "error", err)
 		return errors.NewUnauthorizedError("user not found")

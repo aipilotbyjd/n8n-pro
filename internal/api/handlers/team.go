@@ -107,24 +107,29 @@ func (h *TeamHandler) GetUserTeams(w http.ResponseWriter, r *http.Request) {
 			owner = nil // Set to nil on error
 		}
 
+		// Convert TeamSettings struct to map for response
+		settingsMap := make(map[string]interface{})
+		settingsBytes, _ := json.Marshal(team.Settings)
+		json.Unmarshal(settingsBytes, &settingsMap)
+
 		response := TeamResponse{
 			ID:          team.ID,
 			Name:        team.Name,
 			Description: team.Description,
-			Settings:    team.Settings,
+			Settings:    settingsMap,
 			MemberCount: memberCount,
 			CreatedAt:   team.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:   team.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UserRole:    membership.Role,
 		}
 
-		if owner != nil {
+		if owner != nil && owner.User != nil {
 			response.Owner = &UserSummary{
-				ID:        owner.ID,
-				Email:     owner.Email,
-				FirstName: owner.FirstName,
-				LastName:  owner.LastName,
-				FullName:  owner.FirstName + " " + owner.LastName,
+				ID:        owner.User.ID,
+				Email:     owner.User.Email,
+				FirstName: owner.User.FirstName,
+				LastName:  owner.User.LastName,
+				FullName:  owner.User.FirstName + " " + owner.User.LastName,
 			}
 		}
 
@@ -145,7 +150,7 @@ func (h *TeamHandler) GetOrganizationTeams(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check if user has permission to view all teams
-	if user.Role == auth.RoleViewer || user.Role == auth.RoleMember {
+	if user.Role == string(auth.RoleViewer) || user.Role == string(auth.RoleMember) {
 		writeError(w, errors.NewForbiddenError("Insufficient permissions to view all organization teams"))
 		return
 	}
@@ -161,9 +166,15 @@ func (h *TeamHandler) GetOrganizationTeams(w http.ResponseWriter, r *http.Reques
 		limit = 20
 	}
 
-	teams, total, err := h.authService.GetOrganizationTeams(r.Context(), user.OrganizationID, page, limit)
+	// Use team ID as organization ID placeholder for now
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+
+	teams, total, err := h.authService.GetOrganizationTeams(r.Context(), orgID, page, limit)
 	if err != nil {
-		h.logger.Error("Failed to get organization teams", "org_id", user.OrganizationID, "error", err)
+		h.logger.Error("Failed to get organization teams", "org_id", orgID, "error", err)
 		writeError(w, errors.InternalError("Failed to get organization teams"))
 		return
 	}
@@ -191,24 +202,29 @@ func (h *TeamHandler) GetOrganizationTeams(w http.ResponseWriter, r *http.Reques
 			userRole = auth.RoleViewer // Default to viewer on error
 		}
 
+		// Convert TeamSettings struct to map for response
+		settingsMap := make(map[string]interface{})
+		settingsBytes, _ := json.Marshal(team.Settings)
+		json.Unmarshal(settingsBytes, &settingsMap)
+
 		response := TeamResponse{
 			ID:          team.ID,
 			Name:        team.Name,
 			Description: team.Description,
-			Settings:    team.Settings,
+			Settings:    settingsMap,
 			MemberCount: memberCount,
 			CreatedAt:   team.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:   team.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UserRole:    userRole,
 		}
 
-		if owner != nil {
+		if owner != nil && owner.User != nil {
 			response.Owner = &UserSummary{
-				ID:        owner.ID,
-				Email:     owner.Email,
-				FirstName: owner.FirstName,
-				LastName:  owner.LastName,
-				FullName:  owner.FirstName + " " + owner.LastName,
+				ID:        owner.User.ID,
+				Email:     owner.User.Email,
+				FirstName: owner.User.FirstName,
+				LastName:  owner.User.LastName,
+				FullName:  owner.User.FirstName + " " + owner.User.LastName,
 			}
 		}
 
@@ -262,8 +278,12 @@ func (h *TeamHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if team belongs to user's organization
-	if team.OrganizationID != user.OrganizationID {
+	// Check if team belongs to user's organization (use team ID as org ID placeholder)
+	orgID := user.TeamID
+	if orgID == "" {
+		orgID = "default-org"
+	}
+	if team.OrganizationID != orgID {
 		writeError(w, errors.NewForbiddenError("Access denied to this team"))
 		return
 	}

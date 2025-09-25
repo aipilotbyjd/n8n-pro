@@ -403,6 +403,15 @@ func (r *Registry) Search(query string) ([]*NodeDefinition, error) {
 	return r.GetDefinitions(filter)
 }
 
+// registerCoreNodes registers built-in core node types
+func (r *Registry) registerCoreNodes() {
+	// TODO: Register HTTP node
+	// TODO: Register Database node
+	// TODO: Register Transform nodes
+	// For now, we'll just log that core nodes should be registered
+	r.logger.Info("Core nodes registration placeholder - implement when actual nodes are ready")
+}
+
 // ValidateNodeParameters validates node parameters against definition
 func (r *Registry) ValidateNodeParameters(nodeName string, parameters map[string]interface{}) error {
 	definition, err := r.GetDefinition(nodeName)
@@ -618,10 +627,5 @@ func (r *Registry) validateParameterValue(paramDef *Parameter, value interface{}
 	return nil
 }
 
-func (r *Registry) registerCoreNodes() {
-	// Core nodes will be registered by the application startup
-	// This avoids import cycles between internal packages
-	r.logger.Info("Core node registry initialized")
-}
 
 
