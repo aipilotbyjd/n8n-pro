@@ -2,6 +2,9 @@ package config
 
 import (
 	"time"
+	
+	pkgconfig "n8n-pro/pkg/config"
+	"n8n-pro/pkg/logger"
 )
 
 // Config holds the complete application configuration
@@ -336,6 +339,16 @@ type LimitsConfig struct {
 
 // Load loads the configuration from environment variables
 func Load() (*Config, error) {
+	// Create a simple logger for the environment loader
+	logger := logger.New("config")
+	
+	// Load environment files before reading configuration
+	envLoader := pkgconfig.NewEnvironmentLoader(logger)
+	if err := envLoader.LoadEnvironmentWithDefaults(); err != nil {
+		// Log warning but don't fail - environment files are optional
+		logger.Warn("Failed to load environment files", "error", err)
+	}
+	
 	config := &Config{
 		Environment: getEnvString("ENVIRONMENT", "development"),
 		Debug:       getEnvBool("DEBUG", false),

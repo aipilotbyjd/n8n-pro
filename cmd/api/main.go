@@ -85,7 +85,10 @@ func main() {
 	// Initialize services
 	authRepo := auth.NewPostgresRepository(db)
 	authSvc := auth.NewService(authRepo)
-	validator := workflows.NewDefaultValidator(authSvc)
+	
+	// Create adapter for workflows.UserService
+	userServiceAdapter := &userServiceAdapter{authService: authSvc}
+	validator := workflows.NewDefaultValidator(userServiceAdapter)
 	
 	// Initialize executor
 	executor := workflows.NewDefaultExecutor(workflowRepo)
@@ -388,4 +391,25 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 		WriteTimeout: cfg.API.WriteTimeout,
 		IdleTimeout:  cfg.API.IdleTimeout,
 	}
+}
+
+// userServiceAdapter adapts auth.Service to workflows.UserService interface
+type userServiceAdapter struct {
+	authService *auth.Service
+}
+
+func (u *userServiceAdapter) GetUserByID(ctx context.Context, userID string) (*workflows.User, error) {
+	authUser, err := u.authService.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert auth.User to workflows.User
+	return &workflows.User{
+		ID:     authUser.ID,
+		Email:  authUser.Email,
+		Role:   authUser.Role,
+		TeamID: authUser.TeamID,
+		Active: authUser.Active,
+	}, nil
 }
