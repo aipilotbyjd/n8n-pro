@@ -1,0 +1,979 @@
+{
+  "info": {
+    "name": "n8n Pro API",
+    "description": "Complete API collection for n8n Pro - Enterprise Workflow Automation Platform",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "apiVersion",
+      "value": "v1",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "teamId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "workflowId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "executionId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set common headers",
+          "pm.request.headers.add({",
+          "  key: 'Content-Type',",
+          "  value: 'application/json'",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common test scripts",
+          "pm.test('Response time is less than 2000ms', function () {",
+          "  pm.expect(pm.response.responseTime).to.be.below(2000);",
+          "});",
+          "",
+          "pm.test('Response has correct Content-Type', function () {",
+          "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & System",
+      "description": "Health checks and system information endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": [
+            {
+              "name": "Health Check Success",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"healthy\",\n  \"service\": \"api\",\n  \"timestamp\": \"2024-01-16T10:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Version Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/version",
+              "host": ["{{baseUrl}}"],
+              "path": ["version"]
+            }
+          },
+          "response": [
+            {
+              "name": "Version Info Success",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/version",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["version"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"version\": \"1.0.0\",\n  \"build_time\": \"2024-01-16T10:00:00Z\",\n  \"git_commit\": \"abc123def456\",\n  \"go_version\": \"go1.23\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "description": "User authentication and authorization endpoints",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has access token', function () {",
+                  "  const responseJson = pm.response.json();",
+                  "  pm.expect(responseJson).to.have.property('data');",
+                  "  pm.expect(responseJson.data).to.have.property('access_token');",
+                  "  ",
+                  "  // Store tokens in collection variables",
+                  "  pm.collectionVariables.set('accessToken', responseJson.data.access_token);",
+                  "  pm.collectionVariables.set('refreshToken', responseJson.data.refresh_token);",
+                  "  pm.collectionVariables.set('userId', responseJson.data.user.id);",
+                  "  pm.collectionVariables.set('teamId', responseJson.data.user.team_id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"secure_password_123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "auth", "login"]
+            }
+          },
+          "response": [
+            {
+              "name": "Login Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"secure_password_123\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/login",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "{{apiVersion}}", "auth", "login"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"token_type\": \"Bearer\",\n    \"expires_in\": 3600,\n    \"user\": {\n      \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n      \"email\": \"admin@example.com\",\n      \"first_name\": \"Admin\",\n      \"last_name\": \"User\",\n      \"role\": \"admin\",\n      \"team_id\": \"550e8400-e29b-41d4-a716-446655440001\"\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"secure_password_123\",\n  \"first_name\": \"New\",\n  \"last_name\": \"User\",\n  \"team_name\": \"My Team\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "auth", "logout"]
+            }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "auth", "forgot-password"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workflows",
+      "description": "Workflow management endpoints",
+      "item": [
+        {
+          "name": "List Workflows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows?page=1&limit=20&sort=created_at:desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "created_at:desc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Workflow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has workflow ID', function () {",
+                  "  const responseJson = pm.response.json();",
+                  "  pm.expect(responseJson).to.have.property('data');",
+                  "  pm.expect(responseJson.data).to.have.property('id');",
+                  "  ",
+                  "  // Store workflow ID for other requests",
+                  "  pm.collectionVariables.set('workflowId', responseJson.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sample API Workflow\",\n  \"description\": \"A sample workflow that fetches data from an API\",\n  \"nodes\": [\n    {\n      \"id\": \"start-node\",\n      \"type\": \"n8n-nodes-base.start\",\n      \"name\": \"Start\",\n      \"parameters\": {},\n      \"position\": [100, 100]\n    },\n    {\n      \"id\": \"http-node\",\n      \"type\": \"n8n-nodes-base.httpRequest\",\n      \"name\": \"Fetch Data\",\n      \"parameters\": {\n        \"url\": \"https://jsonplaceholder.typicode.com/posts/1\",\n        \"method\": \"GET\",\n        \"headers\": {\n          \"Content-Type\": \"application/json\"\n        }\n      },\n      \"position\": [300, 100]\n    }\n  ],\n  \"connections\": [\n    {\n      \"source_node\": \"start-node\",\n      \"source_output\": \"main\",\n      \"target_node\": \"http-node\",\n      \"target_input\": \"main\"\n    }\n  ],\n  \"tags\": [\"api\", \"sample\"],\n  \"settings\": {\n    \"timeout\": 300,\n    \"max_execution_time\": 3600,\n    \"enable_logging\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows"]
+            }
+          }
+        },
+        {
+          "name": "Get Workflow",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows/{{workflowId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows", "{{workflowId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Workflow",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Sample Workflow\",\n  \"description\": \"An updated sample workflow\",\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows/{{workflowId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows", "{{workflowId}}"]
+            }
+          }
+        },
+        {
+          "name": "Execute Workflow (Async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has execution ID', function () {",
+                  "  const responseJson = pm.response.json();",
+                  "  pm.expect(responseJson).to.have.property('data');",
+                  "  pm.expect(responseJson.data).to.have.property('execution_id');",
+                  "  ",
+                  "  // Store execution ID for other requests",
+                  "  pm.collectionVariables.set('executionId', responseJson.data.execution_id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"async\",\n  \"input_data\": {\n    \"testVariable\": \"test value\",\n    \"numberVariable\": 42\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows/{{workflowId}}/execute",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows", "{{workflowId}}", "execute"]
+            }
+          }
+        },
+        {
+          "name": "Execute Workflow (Sync)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"sync\",\n  \"input_data\": {\n    \"testVariable\": \"test value\",\n    \"numberVariable\": 42\n  },\n  \"timeout\": 300\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows/{{workflowId}}/execute",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows", "{{workflowId}}", "execute"]
+            }
+          }
+        },
+        {
+          "name": "Delete Workflow",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/workflows/{{workflowId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "workflows", "{{workflowId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Executions",
+      "description": "Workflow execution management endpoints",
+      "item": [
+        {
+          "name": "List Executions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/executions?page=1&limit=20&status=completed",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "executions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "completed"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Execution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/executions/{{executionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "executions", "{{executionId}}"]
+            }
+          }
+        },
+        {
+          "name": "Cancel Execution",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/executions/{{executionId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "executions", "{{executionId}}", "cancel"]
+            }
+          }
+        },
+        {
+          "name": "Retry Execution",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/executions/{{executionId}}/retry",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "executions", "{{executionId}}", "retry"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "User management endpoints",
+      "item": [
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update Current User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"Name\",\n  \"phone\": \"+1234567890\",\n  \"timezone\": \"America/New_York\",\n  \"preferences\": {\n    \"theme\": \"dark\",\n    \"notifications_email\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"current_password\",\n  \"new_password\": \"new_secure_password_123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/users/me/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "users", "me", "change-password"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Teams",
+      "description": "Team management endpoints",
+      "item": [
+        {
+          "name": "List Teams",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams"]
+            }
+          }
+        },
+        {
+          "name": "Create Team",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Development Team\",\n  \"description\": \"Team for development workflows\",\n  \"settings\": {\n    \"max_workflows\": 100,\n    \"max_executions_per_day\": 1000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams"]
+            }
+          }
+        },
+        {
+          "name": "Get Team",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams/{{teamId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams", "{{teamId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Team",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Development Team\",\n  \"description\": \"Updated team description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams/{{teamId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams", "{{teamId}}"]
+            }
+          }
+        },
+        {
+          "name": "List Team Members",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams/{{teamId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams", "{{teamId}}", "members"]
+            }
+          }
+        },
+        {
+          "name": "Add Team Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"member@example.com\",\n  \"role\": \"member\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/teams/{{teamId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "teams", "{{teamId}}", "members"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Credentials",
+      "description": "Credential management endpoints",
+      "item": [
+        {
+          "name": "List Credentials",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/credentials",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "credentials"]
+            }
+          }
+        },
+        {
+          "name": "Create Credential",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My API Key\",\n  \"type\": \"httpHeaderAuth\",\n  \"data\": {\n    \"headerName\": \"Authorization\",\n    \"headerValue\": \"Bearer your-api-key-here\"\n  },\n  \"description\": \"API key for external service\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/credentials",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "credentials"]
+            }
+          }
+        },
+        {
+          "name": "Get Credential Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/credentials/types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "credentials", "types"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "description": "Webhook management endpoints",
+      "item": [
+        {
+          "name": "List Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/webhooks?workflow_id={{workflowId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "webhooks"],
+              "query": [
+                {
+                  "key": "workflow_id",
+                  "value": "{{workflowId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workflow_id\": \"{{workflowId}}\",\n  \"method\": \"POST\",\n  \"path\": \"/webhook/sample\",\n  \"authentication\": \"none\",\n  \"settings\": {\n    \"response_mode\": \"onReceived\",\n    \"response_code\": 200,\n    \"response_data\": \"OK\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "webhooks"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Nodes",
+      "description": "Node information endpoints",
+      "item": [
+        {
+          "name": "List Nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/nodes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "nodes"]
+            }
+          }
+        },
+        {
+          "name": "List Node Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/nodes/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "nodes", "categories"]
+            }
+          }
+        },
+        {
+          "name": "Get Node Definition",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/nodes/n8n-nodes-base.httpRequest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "nodes", "n8n-nodes-base.httpRequest"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Metrics",
+      "description": "Metrics and monitoring endpoints",
+      "item": [
+        {
+          "name": "Get Workflow Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/metrics/workflows/{{workflowId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "metrics", "workflows", "{{workflowId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Team Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/metrics/team",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "metrics", "team"]
+            }
+          }
+        },
+        {
+          "name": "Get System Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/metrics/system",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "metrics", "system"]
+            }
+          }
+        },
+        {
+          "name": "Get Health Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/metrics/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "metrics", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "description": "Settings management endpoints",
+      "item": [
+        {
+          "name": "Get User Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/settings/user",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "settings", "user"]
+            }
+          }
+        },
+        {
+          "name": "Update User Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"theme\": \"dark\",\n  \"timezone\": \"America/New_York\",\n  \"notifications\": {\n    \"email\": true,\n    \"push\": false,\n    \"slack\": true\n  },\n  \"preferences\": {\n    \"auto_save\": true,\n    \"execution_timeout\": 300\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/{{apiVersion}}/settings/user",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "{{apiVersion}}", "settings", "user"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
