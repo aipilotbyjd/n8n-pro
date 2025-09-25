@@ -72,20 +72,6 @@ type Repository interface {
 	UpdateLastLoginAtomic(ctx context.Context, userID, ipAddress string) error
 }
 
-// Team represents a team in the system
-type Team struct {
-	ID          string                 `json:"id" db:"id"`
-	Name        string                 `json:"name" db:"name"`
-	Slug        string                 `json:"slug" db:"slug"`
-	Description *string                `json:"description" db:"description"`
-	Plan        string                 `json:"plan" db:"plan"`
-	MaxUsers    int                    `json:"max_users" db:"max_users"`
-	Settings    map[string]interface{} `json:"settings" db:"settings"`
-	Metadata    map[string]interface{} `json:"metadata" db:"metadata"`
-	CreatedAt   time.Time              `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at" db:"updated_at"`
-	DeletedAt   *time.Time             `json:"deleted_at" db:"deleted_at"`
-}
 
 // Service provides authentication services
 type Service struct {
