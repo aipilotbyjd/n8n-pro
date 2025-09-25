@@ -1,0 +1,155 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Go workspace file
+go.work
+
+# Build artifacts
+build/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.test
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Database files (local development)
+*.db
+*.sqlite
+*.sqlite3
+
+# Storage directory contents (but keep the directory structure)
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/temp/*
+!storage/temp/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+
+# Docker volumes and data
+docker-data/
+postgres_data/
+redis_data/
+kafka_data/
+
+# Kubernetes secrets and configs
+*.secret.yaml
+*secret*.yaml
+
+# TLS certificates
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Backup files
+*.orig
+*.rej
+*.patch
+
+# Node.js (if any frontend components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Go module download cache
+go/pkg/mod/
+
+# Air (live reload tool) temp files
+tmp/
+
+# Delve debugger files
+__debug_bin
+
+# Editor-specific files
+*.sublime-project
+*.sublime-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+
+# Local configuration overrides
+config/local.yaml
+config/local.json
+configs/local.yaml
+configs/local.json
+
+# Test artifacts
+testdata/temp/
+test-results/
+junit.xml
+
+# Documentation build artifacts
+site/
+docs/site/
+
+# Backup directories
+backup/
+backups/
+
+# Cache directories
+.cache/
+cache/
+
+# Profiling files
+*.prof
+*.trace
+
+# Local development scripts
+dev-*.sh
+test-*.sh
+debug-*.sh
