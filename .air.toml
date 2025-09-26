@@ -1,0 +1,95 @@
+# Config file for Air (hot reloading)
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  # Array of commands to run before each build
+  pre_cmd = []
+  
+  # Main executable path
+  bin = "tmp/n8n-pro"
+  
+  # Build command
+  cmd = "go build -o tmp/n8n-pro cmd/api/main.go"
+  
+  # Array of commands to run after build finishes
+  post_cmd = []
+  
+  # Enable to use ./tmp directory as working directory
+  # This is useful if you want to use Air with Docker
+  # Note: This will copy the entire project to tmp directory
+  full_bin = "tmp/n8n-pro serve"
+  
+  # Watch these filename extensions
+  include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "json", "env"]
+  
+  # Ignore these filename extensions or directories
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "build", "dist", ".git", ".github", "docs"]
+  
+  # Watch these directories if you specified
+  include_dir = []
+  
+  # Exclude files
+  exclude_file = []
+  
+  # Exclude unchanged files
+  exclude_unchanged = false
+  
+  # Follow symbolic links
+  follow_symlink = false
+  
+  # This log file is placed in your tmp_dir
+  log = "build-errors.log"
+  
+  # Poll interval for checking file changes (ms)
+  poll_interval = 100
+  
+  # It's not necessary to trigger build each time file changes if it's too frequent
+  delay = 1000
+  
+  # Stop running old binary when building a new one
+  stop_on_root = false
+  
+  # Send Interrupt signal before killing process
+  send_interrupt = true
+  
+  # Delay after sending Interrupt signal
+  kill_delay = 1000
+  
+  # Rerun binary or not
+  rerun = true
+  
+  # Delay after each restart
+  rerun_delay = 1000
+  
+  # Add additional arguments when running binary
+  args_bin = []
+  
+  # Environment variables
+  # Note: These are environment variables for the build command, not the running binary
+  [build.env]
+    # CGO_ENABLED = "0"
+    # GOOS = "linux"
+    # GOARCH = "amd64"
+
+[color]
+  # Color for the main text
+  main = "magenta"
+  
+  # Color for file watcher message
+  watcher = "cyan"
+  
+  # Color for build message  
+  build = "yellow"
+  
+  # Color for runner message
+  runner = "green"
+
+[log]
+  # Show log time
+  time = true
+
+[misc]
+  # Delete tmp directory on exit
+  clean_on_exit = true

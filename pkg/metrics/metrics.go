@@ -73,6 +73,24 @@ type Metrics struct {
 	NodeExecutionDuration *prometheus.HistogramVec
 	NodeErrors            *prometheus.CounterVec
 
+	// Authentication metrics
+	AuthLoginAttempts     *prometheus.CounterVec
+	AuthLoginSuccess      *prometheus.CounterVec
+	AuthLoginFailures     *prometheus.CounterVec
+	AuthTokenRefreshes    *prometheus.CounterVec
+	AuthActiveSessions    prometheus.Gauge
+	AuthAPIKeyUsage       *prometheus.CounterVec
+	AuthRateLimits        *prometheus.CounterVec
+	AuthAccountLockouts   *prometheus.CounterVec
+
+	// Security metrics
+	SecurityEvents        *prometheus.CounterVec
+	SecurityThreats       *prometheus.CounterVec
+	SecurityAudits        *prometheus.CounterVec
+
+	// Performance metrics
+	PerformanceOperations *prometheus.HistogramVec
+
 	// Custom registry
 	registry *prometheus.Registry
 }
@@ -96,6 +114,9 @@ func New(config *Config) *Metrics {
 	m.initSystemMetrics()
 	m.initQueueMetrics()
 	m.initNodeMetrics()
+	m.initAuthMetrics()
+	m.initSecurityMetrics()
+	m.initPerformanceMetrics()
 
 	// Register all metrics
 	m.registerMetrics()
@@ -337,6 +358,132 @@ func (m *Metrics) initNodeMetrics() {
 	)
 }
 
+func (m *Metrics) initAuthMetrics() {
+	m.AuthLoginAttempts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_login_attempts_total",
+			Help:      "Total number of login attempts",
+		},
+		[]string{"method", "source_ip", "user_agent"},
+	)
+
+	m.AuthLoginSuccess = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_login_success_total",
+			Help:      "Total number of successful logins",
+		},
+		[]string{"method", "user_id", "organization_id"},
+	)
+
+	m.AuthLoginFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_login_failures_total",
+			Help:      "Total number of failed login attempts",
+		},
+		[]string{"method", "failure_reason", "source_ip"},
+	)
+
+	m.AuthTokenRefreshes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_token_refreshes_total",
+			Help:      "Total number of token refreshes",
+		},
+		[]string{"user_id", "status"},
+	)
+
+	m.AuthActiveSessions = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_active_sessions",
+			Help:      "Number of currently active sessions",
+		},
+	)
+
+	m.AuthAPIKeyUsage = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_api_key_usage_total",
+			Help:      "Total number of API key authentications",
+		},
+		[]string{"key_id", "user_id", "organization_id", "status"},
+	)
+
+	m.AuthRateLimits = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_rate_limits_total",
+			Help:      "Total number of rate limit violations",
+		},
+		[]string{"limit_type", "identifier", "source_ip"},
+	)
+
+	m.AuthAccountLockouts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "auth_account_lockouts_total",
+			Help:      "Total number of account lockouts",
+		},
+		[]string{"user_id", "reason", "source_ip"},
+	)
+}
+
+func (m *Metrics) initSecurityMetrics() {
+	m.SecurityEvents = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "security_events_total",
+			Help:      "Total number of security events",
+		},
+		[]string{"event_type", "severity", "source_ip", "user_id"},
+	)
+
+	m.SecurityThreats = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "security_threats_total",
+			Help:      "Total number of detected security threats",
+		},
+		[]string{"threat_type", "severity", "source_ip", "action_taken"},
+	)
+
+	m.SecurityAudits = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "security_audits_total",
+			Help:      "Total number of audit events",
+		},
+		[]string{"audit_type", "user_id", "resource", "action"},
+	)
+}
+
+func (m *Metrics) initPerformanceMetrics() {
+	m.PerformanceOperations = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: m.config.Namespace,
+			Subsystem: m.config.Subsystem,
+			Name:      "performance_operations_duration_seconds",
+			Help:      "Performance operation duration in seconds",
+			Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		},
+		[]string{"operation", "component", "status"},
+	)
+}
+
 func (m *Metrics) registerMetrics() {
 	// Register HTTP metrics
 	m.registry.MustRegister(m.HTTPRequestsTotal)
@@ -371,6 +518,24 @@ func (m *Metrics) registerMetrics() {
 	m.registry.MustRegister(m.NodeExecutionsTotal)
 	m.registry.MustRegister(m.NodeExecutionDuration)
 	m.registry.MustRegister(m.NodeErrors)
+
+	// Register authentication metrics
+	m.registry.MustRegister(m.AuthLoginAttempts)
+	m.registry.MustRegister(m.AuthLoginSuccess)
+	m.registry.MustRegister(m.AuthLoginFailures)
+	m.registry.MustRegister(m.AuthTokenRefreshes)
+	m.registry.MustRegister(m.AuthActiveSessions)
+	m.registry.MustRegister(m.AuthAPIKeyUsage)
+	m.registry.MustRegister(m.AuthRateLimits)
+	m.registry.MustRegister(m.AuthAccountLockouts)
+
+	// Register security metrics
+	m.registry.MustRegister(m.SecurityEvents)
+	m.registry.MustRegister(m.SecurityThreats)
+	m.registry.MustRegister(m.SecurityAudits)
+
+	// Register performance metrics
+	m.registry.MustRegister(m.PerformanceOperations)
 }
 
 // RecordHTTPRequest records HTTP request metrics
@@ -431,6 +596,72 @@ func (m *Metrics) RecordQueueMessage(queueName, status string) {
 // SetQueueDepth sets the queue depth
 func (m *Metrics) SetQueueDepth(queueName, partition string, depth float64) {
 	m.QueueDepth.WithLabelValues(queueName, partition).Set(depth)
+}
+
+// Authentication metrics methods
+
+// RecordLoginAttempt records a login attempt
+func (m *Metrics) RecordLoginAttempt(method, sourceIP, userAgent string) {
+	m.AuthLoginAttempts.WithLabelValues(method, sourceIP, userAgent).Inc()
+}
+
+// RecordLoginSuccess records a successful login
+func (m *Metrics) RecordLoginSuccess(method, userID, organizationID string) {
+	m.AuthLoginSuccess.WithLabelValues(method, userID, organizationID).Inc()
+}
+
+// RecordLoginFailure records a failed login attempt
+func (m *Metrics) RecordLoginFailure(method, failureReason, sourceIP string) {
+	m.AuthLoginFailures.WithLabelValues(method, failureReason, sourceIP).Inc()
+}
+
+// RecordTokenRefresh records a token refresh
+func (m *Metrics) RecordTokenRefresh(userID, status string) {
+	m.AuthTokenRefreshes.WithLabelValues(userID, status).Inc()
+}
+
+// SetActiveSessions sets the number of active sessions
+func (m *Metrics) SetActiveSessions(count float64) {
+	m.AuthActiveSessions.Set(count)
+}
+
+// RecordAPIKeyUsage records API key usage
+func (m *Metrics) RecordAPIKeyUsage(keyID, userID, organizationID, status string) {
+	m.AuthAPIKeyUsage.WithLabelValues(keyID, userID, organizationID, status).Inc()
+}
+
+// RecordRateLimit records a rate limit violation
+func (m *Metrics) RecordRateLimit(limitType, identifier, sourceIP string) {
+	m.AuthRateLimits.WithLabelValues(limitType, identifier, sourceIP).Inc()
+}
+
+// RecordAccountLockout records an account lockout
+func (m *Metrics) RecordAccountLockout(userID, reason, sourceIP string) {
+	m.AuthAccountLockouts.WithLabelValues(userID, reason, sourceIP).Inc()
+}
+
+// Security metrics methods
+
+// RecordSecurityEvent records a security event
+func (m *Metrics) RecordSecurityEvent(eventType, severity, sourceIP, userID string) {
+	m.SecurityEvents.WithLabelValues(eventType, severity, sourceIP, userID).Inc()
+}
+
+// RecordSecurityThreat records a security threat
+func (m *Metrics) RecordSecurityThreat(threatType, severity, sourceIP, actionTaken string) {
+	m.SecurityThreats.WithLabelValues(threatType, severity, sourceIP, actionTaken).Inc()
+}
+
+// RecordSecurityAudit records a security audit event
+func (m *Metrics) RecordSecurityAudit(auditType, userID, resource, action string) {
+	m.SecurityAudits.WithLabelValues(auditType, userID, resource, action).Inc()
+}
+
+// Performance metrics methods
+
+// RecordPerformanceOperation records a performance operation
+func (m *Metrics) RecordPerformanceOperation(operation, component, status string, duration time.Duration) {
+	m.PerformanceOperations.WithLabelValues(operation, component, status).Observe(duration.Seconds())
 }
 
 // Register allows registering custom metrics
@@ -536,4 +767,55 @@ func RecordDBQuery(operation, table, status string, duration time.Duration) {
 
 func UpdateDBStats(open, idle, inUse int) {
 	GetGlobal().UpdateDBStats(open, idle, inUse)
+}
+
+// Global authentication metrics functions
+func RecordLoginAttempt(method, sourceIP, userAgent string) {
+	GetGlobal().RecordLoginAttempt(method, sourceIP, userAgent)
+}
+
+func RecordLoginSuccess(method, userID, organizationID string) {
+	GetGlobal().RecordLoginSuccess(method, userID, organizationID)
+}
+
+func RecordLoginFailure(method, failureReason, sourceIP string) {
+	GetGlobal().RecordLoginFailure(method, failureReason, sourceIP)
+}
+
+func RecordTokenRefresh(userID, status string) {
+	GetGlobal().RecordTokenRefresh(userID, status)
+}
+
+func SetActiveSessions(count float64) {
+	GetGlobal().SetActiveSessions(count)
+}
+
+func RecordAPIKeyUsage(keyID, userID, organizationID, status string) {
+	GetGlobal().RecordAPIKeyUsage(keyID, userID, organizationID, status)
+}
+
+func RecordRateLimit(limitType, identifier, sourceIP string) {
+	GetGlobal().RecordRateLimit(limitType, identifier, sourceIP)
+}
+
+func RecordAccountLockout(userID, reason, sourceIP string) {
+	GetGlobal().RecordAccountLockout(userID, reason, sourceIP)
+}
+
+// Global security metrics functions
+func RecordSecurityEvent(eventType, severity, sourceIP, userID string) {
+	GetGlobal().RecordSecurityEvent(eventType, severity, sourceIP, userID)
+}
+
+func RecordSecurityThreat(threatType, severity, sourceIP, actionTaken string) {
+	GetGlobal().RecordSecurityThreat(threatType, severity, sourceIP, actionTaken)
+}
+
+func RecordSecurityAudit(auditType, userID, resource, action string) {
+	GetGlobal().RecordSecurityAudit(auditType, userID, resource, action)
+}
+
+// Global performance metrics functions
+func RecordPerformanceOperation(operation, component, status string, duration time.Duration) {
+	GetGlobal().RecordPerformanceOperation(operation, component, status, duration)
 }

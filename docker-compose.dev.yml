@@ -1,0 +1,203 @@
+# Development docker-compose configuration
+version: '3.8'
+
+services:
+  # Main API service for development
+  n8n-pro-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: n8n-pro:dev
+    container_name: n8n-pro-api-dev
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+      - "2345:2345"  # Delve debugger port
+    environment:
+      - ENV=development
+      - DATABASE_URL=postgres://n8n:devpassword@postgres:5432/n8n_pro_dev?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=text
+      - METRICS_ENABLED=true
+      - HEALTH_CHECK_ENABLED=true
+      - HOT_RELOAD=true
+    volumes:
+      - .:/app:cached
+      - go_modules:/go/pkg/mod
+      - /app/tmp  # Anonymous volume for air tmp directory
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database for development
+  postgres:
+    image: postgres:15-alpine
+    container_name: n8n-pro-postgres-dev
+    environment:
+      - POSTGRES_DB=n8n_pro_dev
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=devpassword
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./scripts/init-dev-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5433:5432"  # Different port for dev to avoid conflicts
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n_pro_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache for development
+  redis:
+    image: redis:7-alpine
+    container_name: n8n-pro-redis-dev
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6380:6379"  # Different port for dev
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # MailHog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: n8n-pro-mailhog
+    ports:
+      - "1025:1025"  # SMTP server
+      - "8025:8025"  # Web UI
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+
+  # pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: n8n-pro-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=dev@n8n-pro.com
+      - PGADMIN_DEFAULT_PASSWORD=devpassword
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "8081:80"
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    profiles:
+      - tools
+
+  # Redis Commander for Redis management
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: n8n-pro-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    profiles:
+      - tools
+
+  # Prometheus for development monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: n8n-pro-prometheus-dev
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=7d'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus-dev.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_dev_data:/prometheus
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Grafana for development dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: n8n-pro-grafana-dev
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=devpassword
+      - GF_USERS_ALLOW_SIGN_UP=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_dev_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources-dev:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: n8n-pro-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "14268:14268"  # Collector HTTP
+      - "16686:16686"  # Web UI
+    networks:
+      - n8n-dev-network
+    restart: unless-stopped
+    profiles:
+      - tracing
+
+networks:
+  n8n-dev-network:
+    driver: bridge
+    name: n8n-pro-dev-network
+
+volumes:
+  postgres_dev_data:
+    name: n8n-pro-postgres-dev-data
+  redis_dev_data:
+    name: n8n-pro-redis-dev-data
+  prometheus_dev_data:
+    name: n8n-pro-prometheus-dev-data
+  grafana_dev_data:
+    name: n8n-pro-grafana-dev-data
+  pgadmin_data:
+    name: n8n-pro-pgadmin-data
+  go_modules:
+    name: n8n-pro-go-modules

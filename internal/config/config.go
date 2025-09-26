@@ -1,3 +1,4 @@
+// Package config provides production-grade application configuration management
 package config
 
 import (
