@@ -87,12 +87,14 @@ func AuthMiddleware(config *AuthConfig, jwtService *jwt.Service, log logger.Logg
 				return
 			}
 
-			// Create user context
+			// Create user context - map JWT claims to our GORM-compatible format
+			// Note: JWT may use TeamID for compatibility, but we map it to OrganizationID internally
+			organizationID := claims.TeamID // JWT claims use TeamID field name for backwards compatibility
 			user := &common.User{
 				ID:       claims.UserID,
 				Email:    claims.Email,
 				Role:     claims.Role,
-				TeamID:   claims.TeamID,
+				TeamID:   organizationID, // common.User still uses TeamID field name but contains OrganizationID value
 				Scopes:   claims.Scopes,
 				IsActive: true,
 			}

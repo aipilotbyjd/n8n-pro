@@ -12,21 +12,19 @@ import (
 
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/api/middleware"
-	"n8n-pro/internal/auth"
+	"n8n-pro/internal/api/routes"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/credentials"
+	"n8n-pro/internal/database"
 	"n8n-pro/internal/nodes"
-	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/teams"
-	"n8n-pro/internal/webhooks"
-	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"gorm.io/gorm"
 )
 
 var (
@@ -55,56 +53,59 @@ func main() {
 	metrics.Initialize(cfg.Metrics)
 
 	// Initialize database
-	db, err := postgres.New(cfg.Database)
+	db, err := database.Initialize(cfg.Database)
 	if err != nil {
 		log.Fatal("Failed to connect to database", "error", err)
 	}
 	defer db.Close()
 
+	// TODO: Re-enable these services once they're updated to use GORM
 	// Initialize repositories and services
-	workflowRepo := workflows.NewPostgresRepository(db)
-	
-	// Initialize credential management
-	credentialStore := credentials.NewStore(db.GetPool(), log)
-	credentialManager, err := credentials.NewManager(credentialStore, &credentials.Config{
-		EncryptionKey: cfg.Auth.JWTSecret, // Use JWT secret as encryption key for now
-	}, log)
-	if err != nil {
-		log.Fatal("Failed to initialize credential manager", "error", err)
-	}
-	
-	workflowSvc := workflows.NewService(
-		workflowRepo,
-		db,
-		cfg,
-		nil, // validator - will be implemented
-		nil, // executor - will be implemented
-		nil, // template service - will be implemented
-		credentialManager,
-	)
+	// workflowRepo := workflows.NewPostgresRepository(db)
+	// 
+	// // Initialize credential management
+	// credentialStore := credentials.NewStore(db.GetPool(), log)
+	// credentialManager, err := credentials.NewManager(credentialStore, &credentials.Config{
+	// 	EncryptionKey: cfg.Auth.JWTSecret, // Use JWT secret as encryption key for now
+	// }, log)
+	// if err != nil {
+	// 	log.Fatal("Failed to initialize credential manager", "error", err)
+	// }
+	// 
+	// workflowSvc := workflows.NewService(
+	// 	workflowRepo,
+	// 	db,
+	// 	cfg,
+	// 	nil, // validator - will be implemented
+	// 	nil, // executor - will be implemented
+	// 	nil, // template service - will be implemented
+	// 	credentialManager,
+	// )
 
 	// Initialize services
-	authRepo := auth.NewPostgresRepository(db)
+	authRepo := auth.NewPostgresRepository(db.DB)
 	authSvc := auth.NewService(authRepo)
 	
+	// TODO: Re-enable workflow-related services
 	// Create adapter for workflows.UserService
-	userServiceAdapter := &userServiceAdapter{authService: authSvc}
-	validator := workflows.NewDefaultValidator(userServiceAdapter)
-	
-	// Initialize executor
-	executor := workflows.NewDefaultExecutor(workflowRepo)
-	
-	// Initialize template service
-	templateSvc := workflows.NewDefaultTemplateService(workflowRepo, log)
-	
-	// Initialize credential service
-	credSvc := workflows.NewDefaultCredentialService(credentialManager)
+	// userServiceAdapter := &userServiceAdapter{authService: authSvc}
+	// validator := workflows.NewDefaultValidator(userServiceAdapter)
+	// 
+	// // Initialize executor
+	// executor := workflows.NewDefaultExecutor(workflowRepo)
+	// 
+	// // Initialize template service
+	// templateSvc := workflows.NewDefaultTemplateService(workflowRepo, log)
+	// 
+	// // Initialize credential service
+	// credSvc := workflows.NewDefaultCredentialService(credentialManager)
 	
 	// Initialize other services
-	teamRepo := teams.NewPostgresRepository(db)
+	teamRepo := teams.NewPostgresRepository(db.DB)
 	teamSvc := teams.NewService(teamRepo)
-	webhookRepo := webhooks.NewPostgresRepository(db)
-	webhookSvc := webhooks.NewService(nil, webhookRepo, db, workflowSvc, nil, log)
+	// TODO: Re-enable webhook service
+	// webhookRepo := webhooks.NewPostgresRepository(db)
+	// webhookSvc := webhooks.NewService(nil, webhookRepo, db, workflowSvc, nil, log)
 	nodeRegistry := nodes.NewRegistry(log)
 	jwtSvc := jwt.New(&jwt.Config{
 		Secret:               cfg.Auth.JWTSecret,
@@ -114,14 +115,15 @@ func main() {
 		Audience:             "n8n-pro-api",
 	})
 
+	// TODO: Re-enable workflow service updates
 	// Update workflow service with real implementations
-	workflowSvc.Validator = validator
-	workflowSvc.Executor = executor
-	workflowSvc.TemplateSvc = templateSvc
-	workflowSvc.CredSvc = credSvc
+	// workflowSvc.Validator = validator
+	// workflowSvc.Executor = executor
+	// workflowSvc.TemplateSvc = templateSvc
+	// workflowSvc.CredSvc = credSvc
 
 	// Create HTTP server
-	server := createServer(cfg, workflowSvc, authSvc, jwtSvc, credentialManager, teamSvc, webhookSvc, nodeRegistry, log)
+	server := createServer(cfg, db.DB, authSvc, jwtSvc, teamSvc, nodeRegistry, log)
 
 	// Start metrics server
 	if cfg.Metrics.Enabled {
@@ -172,7 +174,7 @@ func main() {
 	log.Info("Server exited")
 }
 
-func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *auth.Service, jwtSvc *jwt.Service, credentialManager *credentials.Manager, teamSvc *teams.Service, webhookSvc *webhooks.Service, nodeRegistry *nodes.Registry, log logger.Logger) *http.Server {
+func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, jwtSvc *jwt.Service, teamSvc *teams.Service, nodeRegistry *nodes.Registry, log logger.Logger) *http.Server {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -269,18 +271,19 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	// Setup simple auth routes (bypass complex auth package)
 	routes.SetupSimpleAuthRoutes(r, db, jwtSvc, log)
 
+	// TODO: Initialize handlers once services are ready
 	// Initialize handlers
-	workflowHandler := handlers.NewWorkflowHandler(workflowSvc)
+	// workflowHandler := handlers.NewWorkflowHandler(workflowSvc)
 	// authHandler := handlers.NewAuthHandler(authSvc, jwtSvc, log) // Comment out broken handler
-	userHandler := handlers.NewUserHandler(authSvc, log)
-	executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
-	metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
-	credentialHandler := handlers.NewCredentialHandler(credentialManager, log)
-	teamsHandler := handlers.NewTeamsHandler(teamSvc, log)
-	webhooksHandler := handlers.NewWebhooksHandler(webhookSvc, log)
-	nodesHandler := handlers.NewNodesHandler(nodeRegistry, log)
-	settingsHandler := handlers.NewSettingsHandler(log)
-	templatesHandler := handlers.NewTemplatesHandler(log)
+	// userHandler := handlers.NewUserHandler(authSvc, log)
+	// executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
+	// metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
+	// credentialHandler := handlers.NewCredentialHandler(credentialManager, log)
+	// teamsHandler := handlers.NewTeamsHandler(teamSvc, log)
+	// webhooksHandler := handlers.NewWebhooksHandler(webhookSvc, log)
+	// nodesHandler := handlers.NewNodesHandler(nodeRegistry, log)
+	// settingsHandler := handlers.NewSettingsHandler(log)
+	// templatesHandler := handlers.NewTemplatesHandler(log)
 
 	// Authentication middleware
 	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
@@ -312,126 +315,42 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 		// 			r.Post("/verify-email", authHandler.VerifyEmail)
 		// 		})
 
+		// TODO: Re-enable protected routes once handlers are available
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware)
 
-			// User profile endpoints handled by simple auth or user handlers
-			// r.Route("/profile", func(r chi.Router) {
-			// 	r.Get("/", authHandler.GetCurrentUser)
-			// 	r.Put("/", authHandler.UpdateProfile)
-			// 	r.Post("/send-verification", authHandler.SendVerificationEmail)
-			// })
-
-			// Workflows
-			r.Route("/workflows", func(r chi.Router) {
-				r.Get("/", workflowHandler.ListWorkflows)
-				r.Post("/", workflowHandler.CreateWorkflow)
-				r.Get("/{id}", workflowHandler.GetWorkflow)
-				r.Put("/{id}", workflowHandler.UpdateWorkflow)
-				r.Delete("/{id}", workflowHandler.DeleteWorkflow)
-				r.Post("/{id}/execute", executionHandler.ExecuteWorkflow)
+			// Basic health check route for authenticated users
+			r.Get("/auth-test", func(w http.ResponseWriter, r *http.Request) {
+				user := middleware.GetUserFromContext(r.Context())
+				if user != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					response := fmt.Sprintf(`{"status":"authenticated","user_id":"%s","email":"%s"}`, user.ID, user.Email)
+					w.Write([]byte(response))
+				} else {
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte(`{"error":"not authenticated"}`))
+				}
 			})
 
-			// Executions
-			r.Route("/executions", func(r chi.Router) {
-				r.Get("/", executionHandler.ListExecutions)
-				r.Get("/{id}", executionHandler.GetExecution)
-				r.Delete("/{id}/cancel", executionHandler.CancelExecution)
-				r.Post("/{id}/retry", executionHandler.RetryExecution)
-			})
-
-			// Users (legacy endpoints for backwards compatibility)
-			r.Route("/users", func(r chi.Router) {
-				r.Get("/me", userHandler.GetCurrentUser)
-				r.Put("/me", userHandler.UpdateCurrentUser)
-				r.Post("/me/change-password", userHandler.ChangePassword)
-				r.Delete("/me", userHandler.DeleteAccount)
-			})
-
-			// Metrics
-			r.Route("/metrics", func(r chi.Router) {
-				r.Get("/workflows/{workflowId}", metricsHandler.GetWorkflowMetrics)
-				r.Get("/team", metricsHandler.GetTeamMetrics)
-				r.Get("/system", metricsHandler.GetSystemMetrics)
-				r.Get("/health", metricsHandler.GetHealthMetrics)
-			})
-
-			// Credentials
-			r.Route("/credentials", func(r chi.Router) {
-				r.Get("/", credentialHandler.ListCredentials)
-				r.Post("/", credentialHandler.CreateCredential)
-				r.Get("/types", credentialHandler.GetCredentialTypes)
-				r.Get("/stats", credentialHandler.GetCredentialStats)
-				r.Get("/{id}", credentialHandler.GetCredential)
-				r.Put("/{id}", credentialHandler.UpdateCredential)
-				r.Delete("/{id}", credentialHandler.DeleteCredential)
-				r.Post("/{id}/test", credentialHandler.TestCredential)
-				r.Get("/{id}/data", credentialHandler.GetDecryptedCredential)
-			})
-
-			// Teams
-			r.Route("/teams", func(r chi.Router) {
-				r.Get("/", teamsHandler.ListTeams)
-				r.Post("/", teamsHandler.CreateTeam)
-				r.Get("/{id}", teamsHandler.GetTeam)
-				r.Put("/{id}", teamsHandler.UpdateTeam)
-				r.Delete("/{id}", teamsHandler.DeleteTeam)
-				r.Post("/{id}/members", teamsHandler.AddMember)
-				r.Get("/{id}/members", teamsHandler.ListMembers)
-				r.Delete("/{id}/members/{user_id}", teamsHandler.RemoveMember)
-			})
-
-			// Webhooks
-			r.Route("/webhooks", func(r chi.Router) {
-				r.Get("/", webhooksHandler.ListWebhooks) // ?workflow_id=required
-				r.Post("/", webhooksHandler.CreateWebhook)
-				r.Get("/{id}", webhooksHandler.GetWebhook)
-				r.Put("/{id}", webhooksHandler.UpdateWebhook)
-				r.Delete("/{id}", webhooksHandler.DeleteWebhook)
-				r.Get("/{id}/executions", webhooksHandler.GetWebhookExecutions)
-				r.Post("/{id}/test", webhooksHandler.TestWebhook)
-			})
-
-			// Nodes
-			r.Route("/nodes", func(r chi.Router) {
-				r.Get("/", nodesHandler.ListNodes)
-				r.Get("/categories", nodesHandler.ListCategories)
-				r.Get("/stats", nodesHandler.GetNodeStats)
-				r.Get("/{type}", nodesHandler.GetNode)
-				r.Post("/{type}/test", nodesHandler.TestNode)
-			})
-
-			// Templates
-			r.Route("/templates", func(r chi.Router) {
-				r.Get("/", templatesHandler.ListTemplates)
-				r.Post("/", templatesHandler.CreateTemplate)
-				r.Get("/categories", templatesHandler.ListCategories)
-				r.Get("/stats", templatesHandler.GetTemplateStats)
-				r.Get("/{id}", templatesHandler.GetTemplate)
-				r.Put("/{id}", templatesHandler.UpdateTemplate)
-				r.Delete("/{id}", templatesHandler.DeleteTemplate)
-				r.Post("/{id}/use", templatesHandler.UseTemplate)
-			})
-
-			// Settings
-			r.Route("/settings", func(r chi.Router) {
-				// User settings
-				r.Get("/user", settingsHandler.GetUserSettings)
-				r.Put("/user", settingsHandler.UpdateUserSettings)
-				r.Post("/user/reset", settingsHandler.ResetUserSettings)
-				r.Get("/user/export", settingsHandler.ExportSettings)
-				r.Post("/user/import", settingsHandler.ImportSettings)
-				
-				// System settings (admin only)
-				r.Get("/system", settingsHandler.GetSystemSettings)
-				r.Put("/system", settingsHandler.UpdateSystemSettings)
-			})
+			// TODO: Add back all the route definitions once handlers are implemented:
+			// - Workflows: /workflows/*
+			// - Executions: /executions/*
+			// - Users: /users/*
+			// - Metrics: /metrics/*
+			// - Credentials: /credentials/*
+			// - Teams: /teams/*
+			// - Webhooks: /webhooks/*
+			// - Nodes: /nodes/*
+			// - Templates: /templates/*
+			// - Settings: /settings/*
 		})
 	})
 
+	// TODO: Re-enable metrics endpoint
 	// Prometheus metrics endpoint (admin only)
-	r.Get("/metrics", metricsHandler.GetPrometheusMetrics)
+	// r.Get("/metrics", metricsHandler.GetPrometheusMetrics)
 
 	return &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port),
@@ -442,23 +361,24 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 	}
 }
 
+// TODO: Re-enable user service adapter when needed
 // userServiceAdapter adapts auth.Service to workflows.UserService interface
-type userServiceAdapter struct {
-	authService *auth.Service
-}
+// type userServiceAdapter struct {
+// 	authService *auth.Service
+// }
 
-func (u *userServiceAdapter) GetUserByID(ctx context.Context, userID string) (*workflows.User, error) {
-	authUser, err := u.authService.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Convert auth.User to workflows.User
-	return &workflows.User{
-		ID:     authUser.ID,
-		Email:  authUser.Email,
-		Role:   authUser.Role,
-		TeamID: authUser.TeamID,
-		Active: authUser.Active,
-	}, nil
-}
+// func (u *userServiceAdapter) GetUserByID(ctx context.Context, userID string) (*workflows.User, error) {
+// 	authUser, err := u.authService.GetUserByID(ctx, userID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	
+// 	// Convert auth.User to workflows.User
+// 	return &workflows.User{
+// 		ID:     authUser.ID,
+// 		Email:  authUser.Email,
+// 		Role:   authUser.Role,
+// 		TeamID: authUser.OrganizationID, // Use OrganizationID instead of TeamID
+// 		Active: !authUser.DeletedAt.Valid, // User is active if not deleted
+// 	}, nil
+// }

@@ -104,16 +104,24 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Generate tokens
+	// Get organization information for JWT claims
+	var org models.Organization
+	if err := h.db.Where("id = ?", user.OrganizationID).First(&org).Error; err != nil {
+		h.logger.Error("Failed to get organization for user", "user_id", user.ID, "org_id", user.OrganizationID, "error", err)
+		writeError(w, errors.InternalError("Failed to retrieve user organization"))
+		return
+	}
+	
+	// Generate tokens with proper organization information
 	userName := strings.TrimSpace(user.FirstName + " " + user.LastName)
 	tokenPair, err := h.jwtService.GenerateTokenPair(
 		user.ID,
 		user.Email,
 		user.Role,
-		"", // team_id - we'll get from team_members table later
-		"Default Team",
-		"premium",
-		[]string{"workflows:read", "workflows:write", "workflows:delete", "executions:read"},
+		user.OrganizationID, // Use OrganizationID as TeamID in JWT for compatibility
+		org.Name,           // Organization name as TeamName
+		org.Plan,           // Organization plan
+		[]string{"workflows:read", "workflows:write", "workflows:delete", "executions:read", "organizations:read"},
 	)
 	if err != nil {
 		h.logger.Error("Failed to generate tokens", "user_id", user.ID, "error", err)
