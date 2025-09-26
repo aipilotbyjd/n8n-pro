@@ -231,6 +231,11 @@ func NewNotFoundError(message string) *AppError {
 	return New(ErrorTypeNotFound, CodeResourceNotFound, message)
 }
 
+// NewConflictError creates a conflict error with a simple message
+func NewConflictError(message string) *AppError {
+	return New(ErrorTypeConflict, CodeResourceExists, message)
+}
+
 // NewUnauthorizedError creates an unauthorized error with a simple message
 func NewUnauthorizedError(message string) *AppError {
 	return New(ErrorTypeAuthentication, CodeInvalidCredentials, message)

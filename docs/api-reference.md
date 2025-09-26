@@ -8,6 +8,9 @@ n8n-Pro is a workflow automation platform with a comprehensive REST API. This do
 
 - **Main API Server**: `http://localhost:8080/api/v1`
 - **Webhook Server**: `http://localhost:8081`
+- **Metrics Server**: `http://localhost:8080/metrics` (Prometheus format)
+- **Health Check**: `http://localhost:8080/health`
+- **Version Info**: `http://localhost:8080/version`
 
 ## Authentication
 
@@ -53,6 +56,57 @@ All API responses follow a standardized format:
 - `404 Not Found` - Resource not found
 - `422 Unprocessable Entity` - Validation errors
 - `500 Internal Server Error` - Server error
+
+---
+
+## Public Endpoints
+
+These endpoints do not require authentication:
+
+### Health Check
+
+**GET** `/health`
+
+Returns the API server health status.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "service": "api",
+  "timestamp": "2025-01-27T10:30:00Z"
+}
+```
+
+### Version Information
+
+**GET** `/version`
+
+Returns version and build information.
+
+**Response:**
+```json
+{
+  "version": "dev",
+  "build_time": "unknown",
+  "git_commit": "unknown",
+  "go_version": "go1.23"
+}
+```
+
+### Metrics
+
+**GET** `/metrics`
+
+Returns Prometheus-format metrics for monitoring.
+
+**Response:**
+```
+# HELP n8n_pro_db_connections_idle Number of idle database connections
+# TYPE n8n_pro_db_connections_idle gauge
+n8n_pro_db_connections_idle 5
+...
+```
 
 ---
 

@@ -13,10 +13,13 @@ import (
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/config"
 	"n8n-pro/internal/database"
-	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/teams"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 const usage = `
@@ -101,7 +104,7 @@ FLAGS:
 
 type AdminCLI struct {
 	cfg         *config.Config
-	db          *postgres.DB
+	db          *database.Database
 	logger      logger.Logger
 	workflowSvc *workflows.Service
 	authSvc     *auth.Service
@@ -180,34 +183,37 @@ func NewAdminCLI(configFile string, verbose bool) (*AdminCLI, error) {
 	}
 
 	// Initialize database
-	db, err := postgres.New(cfg.Database)
+	db, err := database.Initialize(cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Initialize services
-	workflowRepo := workflows.NewPostgresRepository(db)
-	workflowSvc := workflows.NewService(
-		workflowRepo,
-		db,
-		cfg,
-		nil, // validator - will be implemented
-		nil, // executor - will be implemented
-		nil, // template service - will be implemented
-		nil, // credential service - will be implemented
-	)
-
-	authRepo := auth.NewPostgresRepository(db)
+	// Initialize services with GORM DB
+	// TODO: Workflows and teams services need to be migrated to GORM
+	// For now, we'll only initialize auth service which has been converted to GORM
+	
+	authRepo := auth.NewPostgresRepository(db.DB)
 	authSvc := auth.NewService(authRepo)
 
-	teamRepo := teams.NewPostgresRepository(db)
+	// workflowRepo := workflows.NewPostgresRepository(db.DB)
+	// workflowSvc := workflows.NewService(
+	// 	workflowRepo,
+	// 	db.DB,
+	// 	cfg,
+	// 	nil, // validator - will be implemented
+	// 	nil, // executor - will be implemented
+	// 	nil, // template service - will be implemented
+	// 	nil, // credential service - will be implemented
+	// )
+
+	teamRepo := teams.NewPostgresRepository(db.DB)
 	teamSvc := teams.NewService(teamRepo)
 
 	return &AdminCLI{
 		cfg:         cfg,
 		db:          db,
 		logger:      logger,
-		workflowSvc: workflowSvc,
+		// workflowSvc: workflowSvc, // TODO: Re-enable after migrating workflows to GORM
 		authSvc:     authSvc,
 		teamSvc:     teamSvc,
 	}, nil

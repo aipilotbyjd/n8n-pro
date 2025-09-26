@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"n8n-pro/internal/auth"
+	"n8n-pro/internal/models"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/errors"
 
@@ -165,15 +167,28 @@ func (tw *TestWorkflow) ToWorkflow() *workflows.Workflow {
 // ToUser converts TestUser to auth.User
 func (tu *TestUser) ToUser() *auth.User {
 	now := time.Now()
+	// Split name into first and last name for GORM User model
+	nameParts := strings.Fields(tu.Name)
+	firstName := tu.Name
+	lastName := ""
+	if len(nameParts) > 1 {
+		firstName = nameParts[0]
+		lastName = strings.Join(nameParts[1:], " ")
+	}
+
 	return &auth.User{
-		ID:        tu.ID,
-		Email:     tu.Email,
-		Name:      tu.Name,
-		Active:    true,
-		TeamID:    tu.TeamID,
-		Role:      tu.Role,
-		CreatedAt: now,
-		UpdatedAt: now,
+		BaseModel: models.BaseModel{
+			ID:        tu.ID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		OrganizationID: tu.TeamID, // Map TeamID to OrganizationID
+		Email:          tu.Email,
+		FirstName:      firstName,
+		LastName:       lastName,
+		Status:         "active",
+		Role:           tu.Role,
+		PasswordHash:   "$2a$10$test.hash", // Test password hash
 	}
 }
 

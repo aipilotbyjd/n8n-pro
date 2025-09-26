@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
-	"n8n-pro/internal/api/handlers"
+	"n8n-pro/internal/auth"
 	"n8n-pro/internal/api/middleware"
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/auth/jwt"
@@ -213,17 +214,64 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		response := fmt.Sprintf(`{
-			"version":"%s",
-			"build_time":"%s",
-			"git_commit":"%s",
-			"go_version":"%s"
-		}`, version, buildTime, gitCommit, "go1.23")
+			"version": "%s",
+			"build_time": "%s",
+			"git_commit": "%s",
+			"go_version": "%s"
+		}`, version, buildTime, gitCommit, runtime.Version())
 		w.Write([]byte(response))
 	})
 
+	// API discovery endpoint
+	r.Get("/api/v1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		response := `{
+			"name": "n8n-pro API",
+			"version": "v1",
+			"description": "Enterprise Workflow Automation Platform API",
+			"endpoints": {
+				"authentication": {
+					"login": "POST /api/v1/auth/login",
+					"register": "POST /api/v1/auth/register",
+					"refresh": "POST /api/v1/auth/refresh",
+					"logout": "POST /api/v1/users/logout"
+				},
+				"users": {
+					"profile": "GET /api/v1/users/me",
+					"update_profile": "PUT /api/v1/users/me",
+					"change_password": "PUT /api/v1/users/me/password"
+				},
+				"workflows": {
+					"list": "GET /api/v1/workflows",
+					"create": "POST /api/v1/workflows",
+					"get": "GET /api/v1/workflows/{id}",
+					"update": "PUT /api/v1/workflows/{id}",
+					"delete": "DELETE /api/v1/workflows/{id}"
+				},
+				"teams": {
+					"my_teams": "GET /api/v1/teams/my",
+					"list": "GET /api/v1/teams",
+					"create": "POST /api/v1/teams",
+					"get": "GET /api/v1/teams/{id}"
+				}
+			},
+			"public_endpoints": {
+				"health": "GET /health",
+				"version": "GET /version",
+				"metrics": "GET /metrics",
+				"api_info": "GET /api/v1"
+			}
+		}`
+		w.Write([]byte(response))
+	})
+
+	// Setup simple auth routes (bypass complex auth package)
+	routes.SetupSimpleAuthRoutes(r, db, jwtSvc, log)
+
 	// Initialize handlers
 	workflowHandler := handlers.NewWorkflowHandler(workflowSvc)
-	authHandler := handlers.NewAuthHandler(authSvc, jwtSvc, log)
+	// authHandler := handlers.NewAuthHandler(authSvc, jwtSvc, log) // Comment out broken handler
 	userHandler := handlers.NewUserHandler(authSvc, log)
 	executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
 	metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
@@ -252,27 +300,28 @@ func createServer(cfg *config.Config, workflowSvc *workflows.Service, authSvc *a
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Auth endpoints (no auth required)
-		r.Route("/auth", func(r chi.Router) {
-			r.Post("/login", authHandler.Login)
-			r.Post("/register", authHandler.Register)
-			r.Post("/refresh", authHandler.RefreshToken)
-			r.Post("/logout", authHandler.Logout)
-			r.Post("/forgot-password", authHandler.ForgotPassword)
-			r.Post("/reset-password", authHandler.ResetPassword)
-			r.Post("/verify-email", authHandler.VerifyEmail)
-		})
+		// Note: Auth endpoints are handled by SetupSimpleAuthRoutes above
+		// 		// Auth endpoints (no auth required)
+		// 		r.Route("/auth", func(r chi.Router) {
+		// 			r.Post("/login", authHandler.Login)
+		// 			r.Post("/register", authHandler.Register)
+		// 			r.Post("/refresh", authHandler.RefreshToken)
+		// 			r.Post("/logout", authHandler.Logout)
+		// 			r.Post("/forgot-password", authHandler.ForgotPassword)
+		// 			r.Post("/reset-password", authHandler.ResetPassword)
+		// 			r.Post("/verify-email", authHandler.VerifyEmail)
+		// 		})
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware)
 
-			// User profile endpoints
-			r.Route("/profile", func(r chi.Router) {
-				r.Get("/", authHandler.GetCurrentUser)
-				r.Put("/", authHandler.UpdateProfile)
-				r.Post("/send-verification", authHandler.SendVerificationEmail)
-			})
+			// User profile endpoints handled by simple auth or user handlers
+			// r.Route("/profile", func(r chi.Router) {
+			// 	r.Get("/", authHandler.GetCurrentUser)
+			// 	r.Put("/", authHandler.UpdateProfile)
+			// 	r.Post("/send-verification", authHandler.SendVerificationEmail)
+			// })
 
 			// Workflows
 			r.Route("/workflows", func(r chi.Router) {

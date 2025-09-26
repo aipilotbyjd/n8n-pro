@@ -5,58 +5,69 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
-	"n8n-pro/internal/storage/postgres"
+	"n8n-pro/internal/models"
 	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 
-	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
-// User represents a user in the system
-type User struct {
-	ID        string    `json:"id" db:"id"`
-	Email     string    `json:"email" db:"email"`
-	Name      string    `json:"name" db:"name"`
-	Password  string    `json:"-" db:"password_hash"`
-	Active    bool      `json:"active" db:"active"`
-	TeamID    string    `json:"team_id" db:"team_id"`
-	Role      string    `json:"role" db:"role"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+// User represents a user in the auth service - this is now an alias for the GORM model
+type User = models.User
 
-	// Email verification
-	EmailVerified              bool       `json:"email_verified" db:"email_verified"`
-	EmailVerificationToken     *string    `json:"-" db:"email_verification_token"`
-	EmailVerificationExpiresAt *time.Time `json:"-" db:"email_verification_expires_at"`
+// UserAdapter provides methods to work with the GORM User model
+type UserAdapter struct{}
 
-	// Password reset
-	PasswordResetToken     *string    `json:"-" db:"password_reset_token"`
-	PasswordResetExpiresAt *time.Time `json:"-" db:"password_reset_expires_at"`
-
-	// Profile information
-	AvatarURL *string `json:"avatar_url" db:"avatar_url"`
-	Timezone  string  `json:"timezone" db:"timezone"`
-	Language  string  `json:"language" db:"language"`
-
-	// Activity tracking
-	LastLoginAt    *time.Time `json:"last_login_at" db:"last_login_at"`
-	LastLoginIP    *string    `json:"last_login_ip" db:"last_login_ip"`
-	LoginCount     int        `json:"login_count" db:"login_count"`
-
-	// Account security
-	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
-	LockedUntil         *time.Time `json:"locked_until" db:"locked_until"`
-	PasswordChangedAt   time.Time  `json:"password_changed_at" db:"password_changed_at"`
-
-	// Metadata
-	Metadata map[string]interface{} `json:"metadata" db:"metadata"`
-
-	// Soft delete
-	DeletedAt *time.Time `json:"deleted_at" db:"deleted_at"`
+// NewUserAdapter creates a new user adapter
+func NewUserAdapter() *UserAdapter {
+	return &UserAdapter{}
 }
+
+// GetFullName returns the user's full name
+func (ua *UserAdapter) GetFullName(user *User) string {
+	return strings.TrimSpace(user.FirstName + " " + user.LastName)
+}
+
+// IsActive checks if user is active
+func (ua *UserAdapter) IsActive(user *User) bool {
+	return user.Status == "active"
+}
+
+// GetPassword returns the password hash
+func (ua *UserAdapter) GetPassword(user *User) string {
+	return user.PasswordHash
+}
+
+// Stub types for compatibility
+type Session struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+type Organization struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type APIKey struct {
+	ID     string    `json:"id"`
+	UserID string    `json:"user_id"`
+	Name   string    `json:"name"`
+	Key    string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MFASetupData struct {
+	Secret      string   `json:"secret"`
+	QRCodeURL   string   `json:"qr_code_url"`
+	BackupCodes []string `json:"backup_codes"`
+}
+
+type OrganizationStatus string
 
 // Repository defines the auth data access interface
 type Repository interface {
@@ -79,14 +90,14 @@ type Service struct {
 	logger logger.Logger
 }
 
-// PostgresRepository implements Repository for PostgreSQL
+// PostgresRepository implements Repository for PostgreSQL using GORM
 type PostgresRepository struct {
-	db     *postgres.DB
+	db     *gorm.DB
 	logger logger.Logger
 }
 
 // NewPostgresRepository creates a new PostgreSQL auth repository
-func NewPostgresRepository(db *postgres.DB) Repository {
+func NewPostgresRepository(db *gorm.DB) Repository {
 	return &PostgresRepository{
 		db:     db,
 		logger: logger.New("auth-repository"),
@@ -195,7 +206,7 @@ func (s *Service) SetEmailVerificationToken(ctx context.Context, userID string) 
 	}
 
 	expiresAt := time.Now().Add(24 * time.Hour) // Token expires in 24 hours
-	user.EmailVerificationToken = &token
+	user.EmailVerificationToken = token
 	user.EmailVerificationExpiresAt = &expiresAt
 
 	err = s.repo.UpdateUser(ctx, user)
@@ -214,7 +225,7 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (*User, error) 
 	}
 
 	user.EmailVerified = true
-	user.EmailVerificationToken = nil
+	user.EmailVerificationToken = ""
 	user.EmailVerificationExpiresAt = nil
 
 	err = s.repo.UpdateUser(ctx, user)
@@ -238,7 +249,7 @@ func (s *Service) SetPasswordResetToken(ctx context.Context, email string) (stri
 	}
 
 	expiresAt := time.Now().Add(1 * time.Hour) // Token expires in 1 hour
-	user.PasswordResetToken = &token
+	user.PasswordResetToken = token
 	user.PasswordResetExpiresAt = &expiresAt
 
 	err = s.repo.UpdateUser(ctx, user)
@@ -262,8 +273,8 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		s.logger.Error("Failed to hash password during reset", "user_id", user.ID, "error", err)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to process password")
 	}
-	user.Password = string(hashedPassword)
-	user.PasswordResetToken = nil
+	user.PasswordHash = string(hashedPassword)
+	user.PasswordResetToken = ""
 	user.PasswordResetExpiresAt = nil
 	user.PasswordChangedAt = time.Now()
 	user.FailedLoginAttempts = 0 // Reset failed attempts
@@ -279,7 +290,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 
 // Repository implementation
 
-// CreateUser creates a new user in the database
+// CreateUser creates a new user in the database using GORM
 func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
 	if user == nil {
 		return errors.NewValidationError("user cannot be nil")
@@ -289,31 +300,17 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
 	if user.Email == "" {
 		return errors.NewValidationError("email is required")
 	}
-	if user.Name == "" {
-		return errors.NewValidationError("name is required")
+	if user.FirstName == "" {
+		return errors.NewValidationError("first name is required")
 	}
-	if user.Password == "" {
-		return errors.NewValidationError("password is required")
+	if user.PasswordHash == "" {
+		return errors.NewValidationError("password hash is required")
 	}
 
-	query := `
-		INSERT INTO users (
-			id, email, name, password_hash, active, team_id, role,
-			email_verified, timezone, language, password_changed_at,
-			metadata, created_at, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-		)`
-
-	now := time.Now()
-	_, err := r.db.Exec(ctx, query,
-		user.ID, user.Email, user.Name, user.Password, user.Active,
-		user.TeamID, user.Role, user.EmailVerified, user.Timezone,
-		user.Language, now, user.Metadata, now, now,
-	)
-
-	if err != nil {
-		r.logger.Error("Failed to create user", "error", err, "email", user.Email)
+	// Use GORM to create the user
+	result := r.db.WithContext(ctx).Create(user)
+	if result.Error != nil {
+		r.logger.Error("Failed to create user", "error", result.Error, "email", user.Email)
 		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to create user")
 	}
 
@@ -321,89 +318,45 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// GetUserByID retrieves a user by ID
+// GetUserByID retrieves a user by ID using GORM
 func (r *PostgresRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	if id == "" {
 		return nil, errors.NewValidationError("user ID is required")
 	}
 
-	query := `
-		SELECT 
-			id, email, name, password_hash, active, team_id, role,
-			email_verified, email_verification_token, email_verification_expires_at,
-			password_reset_token, password_reset_expires_at,
-			avatar_url, timezone, language,
-			last_login_at, last_login_ip, login_count,
-			failed_login_attempts, locked_until, password_changed_at,
-			metadata, created_at, updated_at, deleted_at
-		FROM users 
-		WHERE id = $1 AND deleted_at IS NULL`
-
 	var user User
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&user.ID, &user.Email, &user.Name, &user.Password, &user.Active,
-		&user.TeamID, &user.Role, &user.EmailVerified,
-		&user.EmailVerificationToken, &user.EmailVerificationExpiresAt,
-		&user.PasswordResetToken, &user.PasswordResetExpiresAt,
-		&user.AvatarURL, &user.Timezone, &user.Language,
-		&user.LastLoginAt, &user.LastLoginIP, &user.LoginCount,
-		&user.FailedLoginAttempts, &user.LockedUntil, &user.PasswordChangedAt,
-		&user.Metadata, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	result := r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&user)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("user not found")
 		}
-		r.logger.Error("Failed to get user by ID", "error", err, "user_id", id)
+		r.logger.Error("Failed to get user by ID", "error", result.Error, "user_id", id)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to retrieve user")
 	}
 
 	return &user, nil
 }
 
-// GetUserByEmail retrieves a user by email
+// GetUserByEmail retrieves a user by email using GORM
 func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	if email == "" {
 		return nil, errors.NewValidationError("email is required")
 	}
 
-	query := `
-		SELECT 
-			id, email, name, password_hash, active, team_id, role,
-			email_verified, email_verification_token, email_verification_expires_at,
-			password_reset_token, password_reset_expires_at,
-			avatar_url, timezone, language,
-			last_login_at, last_login_ip, login_count,
-			failed_login_attempts, locked_until, password_changed_at,
-			metadata, created_at, updated_at, deleted_at
-		FROM users 
-		WHERE email = $1 AND deleted_at IS NULL`
-
 	var user User
-	err := r.db.QueryRow(ctx, query, email).Scan(
-		&user.ID, &user.Email, &user.Name, &user.Password, &user.Active,
-		&user.TeamID, &user.Role, &user.EmailVerified,
-		&user.EmailVerificationToken, &user.EmailVerificationExpiresAt,
-		&user.PasswordResetToken, &user.PasswordResetExpiresAt,
-		&user.AvatarURL, &user.Timezone, &user.Language,
-		&user.LastLoginAt, &user.LastLoginIP, &user.LoginCount,
-		&user.FailedLoginAttempts, &user.LockedUntil, &user.PasswordChangedAt,
-		&user.Metadata, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	result := r.db.WithContext(ctx).Where("email = ? AND deleted_at IS NULL", email).First(&user)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("user not found")
 		}
-		r.logger.Error("Failed to get user by email", "error", err, "email", email)
+		r.logger.Error("Failed to get user by email", "error", result.Error, "email", email)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to retrieve user")
 	}
 
 	return &user, nil
 }
 
-// UpdateUser updates a user in the database
+// UpdateUser updates a user in the database using GORM
 func (r *PostgresRepository) UpdateUser(ctx context.Context, user *User) error {
 	if user == nil {
 		return errors.NewValidationError("user cannot be nil")
@@ -412,37 +365,14 @@ func (r *PostgresRepository) UpdateUser(ctx context.Context, user *User) error {
 		return errors.NewValidationError("user ID is required")
 	}
 
-	query := `
-		UPDATE users SET
-			email = $2, name = $3, password_hash = $4, active = $5,
-			team_id = $6, role = $7, email_verified = $8,
-			email_verification_token = $9, email_verification_expires_at = $10,
-			password_reset_token = $11, password_reset_expires_at = $12,
-			avatar_url = $13, timezone = $14, language = $15,
-			last_login_at = $16, last_login_ip = $17, login_count = $18,
-			failed_login_attempts = $19, locked_until = $20, password_changed_at = $21,
-			metadata = $22, updated_at = $23
-		WHERE id = $1 AND deleted_at IS NULL`
-
-	now := time.Now()
-	result, err := r.db.Exec(ctx, query,
-		user.ID, user.Email, user.Name, user.Password, user.Active,
-		user.TeamID, user.Role, user.EmailVerified,
-		user.EmailVerificationToken, user.EmailVerificationExpiresAt,
-		user.PasswordResetToken, user.PasswordResetExpiresAt,
-		user.AvatarURL, user.Timezone, user.Language,
-		user.LastLoginAt, user.LastLoginIP, user.LoginCount,
-		user.FailedLoginAttempts, user.LockedUntil, user.PasswordChangedAt,
-		user.Metadata, now,
-	)
-
-	if err != nil {
-		r.logger.Error("Failed to update user", "error", err, "user_id", user.ID)
+	// Use GORM to save the user
+	result := r.db.WithContext(ctx).Save(user)
+	if result.Error != nil {
+		r.logger.Error("Failed to update user", "error", result.Error, "user_id", user.ID)
 		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to update user")
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return errors.NewNotFoundError("user not found")
 	}
 
@@ -456,17 +386,14 @@ func (r *PostgresRepository) DeleteUser(ctx context.Context, id string) error {
 		return errors.NewValidationError("user ID is required")
 	}
 
-	query := `UPDATE users SET deleted_at = $2, updated_at = $2 WHERE id = $1 AND deleted_at IS NULL`
-
-	now := time.Now()
-	result, err := r.db.Exec(ctx, query, id, now)
-	if err != nil {
-		r.logger.Error("Failed to delete user", "error", err, "user_id", id)
+	// Use GORM's Delete method for soft delete
+	result := r.db.WithContext(ctx).Delete(&models.User{}, "id = ?", id)
+	if result.Error != nil {
+		r.logger.Error("Failed to delete user", "error", result.Error, "user_id", id)
 		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to delete user")
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return errors.NewNotFoundError("user not found")
 	}
 
@@ -476,68 +403,18 @@ func (r *PostgresRepository) DeleteUser(ctx context.Context, id string) error {
 
 // ListUsers lists users for a team with optional filtering
 func (r *PostgresRepository) ListUsers(ctx context.Context, teamID string) ([]*User, error) {
-	var query string
-	var args []interface{}
+	var users []*User
+	var result *gorm.DB
 
 	if teamID != "" {
-		query = `
-			SELECT 
-				id, email, name, password_hash, active, team_id, role,
-				email_verified, email_verification_token, email_verification_expires_at,
-				password_reset_token, password_reset_expires_at,
-				avatar_url, timezone, language,
-				last_login_at, last_login_ip, login_count,
-				failed_login_attempts, locked_until, password_changed_at,
-				metadata, created_at, updated_at, deleted_at
-			FROM users 
-			WHERE team_id = $1 AND deleted_at IS NULL
-			ORDER BY created_at DESC`
-		args = append(args, teamID)
+		result = r.db.WithContext(ctx).Where("team_id = ?", teamID).Order("created_at DESC").Find(&users)
 	} else {
-		query = `
-			SELECT 
-				id, email, name, password_hash, active, team_id, role,
-				email_verified, email_verification_token, email_verification_expires_at,
-				password_reset_token, password_reset_expires_at,
-				avatar_url, timezone, language,
-				last_login_at, last_login_ip, login_count,
-				failed_login_attempts, locked_until, password_changed_at,
-				metadata, created_at, updated_at, deleted_at
-			FROM users 
-			WHERE deleted_at IS NULL
-			ORDER BY created_at DESC`
+		result = r.db.WithContext(ctx).Order("created_at DESC").Find(&users)
 	}
 
-	rows, err := r.db.Query(ctx, query, args...)
-	if err != nil {
-		r.logger.Error("Failed to list users", "error", err, "team_id", teamID)
+	if result.Error != nil {
+		r.logger.Error("Failed to list users", "error", result.Error, "team_id", teamID)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to list users")
-	}
-	defer rows.Close()
-
-	var users []*User
-	for rows.Next() {
-		var user User
-		err := rows.Scan(
-			&user.ID, &user.Email, &user.Name, &user.Password, &user.Active,
-			&user.TeamID, &user.Role, &user.EmailVerified,
-			&user.EmailVerificationToken, &user.EmailVerificationExpiresAt,
-			&user.PasswordResetToken, &user.PasswordResetExpiresAt,
-			&user.AvatarURL, &user.Timezone, &user.Language,
-			&user.LastLoginAt, &user.LastLoginIP, &user.LoginCount,
-			&user.FailedLoginAttempts, &user.LockedUntil, &user.PasswordChangedAt,
-			&user.Metadata, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-		)
-		if err != nil {
-			r.logger.Error("Failed to scan user row", "error", err)
-			return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to scan user data")
-		}
-		users = append(users, &user)
-	}
-
-	if err = rows.Err(); err != nil {
-		r.logger.Error("Error iterating user rows", "error", err)
-		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to iterate user data")
 	}
 
 	r.logger.Info("Users listed successfully", "count", len(users), "team_id", teamID)
@@ -550,36 +427,13 @@ func (r *PostgresRepository) GetUserByEmailVerificationToken(ctx context.Context
 		return nil, errors.NewValidationError("token is required")
 	}
 
-	query := `
-		SELECT 
-			id, email, name, password_hash, active, team_id, role,
-			email_verified, email_verification_token, email_verification_expires_at,
-			password_reset_token, password_reset_expires_at,
-			avatar_url, timezone, language,
-			last_login_at, last_login_ip, login_count,
-			failed_login_attempts, locked_until, password_changed_at,
-			metadata, created_at, updated_at, deleted_at
-		FROM users 
-		WHERE email_verification_token = $1 AND deleted_at IS NULL
-		  AND email_verification_expires_at > NOW()`
-
 	var user User
-	err := r.db.QueryRow(ctx, query, token).Scan(
-		&user.ID, &user.Email, &user.Name, &user.Password, &user.Active,
-		&user.TeamID, &user.Role, &user.EmailVerified,
-		&user.EmailVerificationToken, &user.EmailVerificationExpiresAt,
-		&user.PasswordResetToken, &user.PasswordResetExpiresAt,
-		&user.AvatarURL, &user.Timezone, &user.Language,
-		&user.LastLoginAt, &user.LastLoginIP, &user.LoginCount,
-		&user.FailedLoginAttempts, &user.LockedUntil, &user.PasswordChangedAt,
-		&user.Metadata, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	result := r.db.WithContext(ctx).Where("email_verification_token = ? AND email_verification_expires_at > ?", token, time.Now()).First(&user)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("invalid or expired verification token")
 		}
-		r.logger.Error("Failed to get user by verification token", "error", err)
+		r.logger.Error("Failed to get user by verification token", "error", result.Error)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to retrieve user")
 	}
 
@@ -592,36 +446,13 @@ func (r *PostgresRepository) GetUserByPasswordResetToken(ctx context.Context, to
 		return nil, errors.NewValidationError("token is required")
 	}
 
-	query := `
-		SELECT 
-			id, email, name, password_hash, active, team_id, role,
-			email_verified, email_verification_token, email_verification_expires_at,
-			password_reset_token, password_reset_expires_at,
-			avatar_url, timezone, language,
-			last_login_at, last_login_ip, login_count,
-			failed_login_attempts, locked_until, password_changed_at,
-			metadata, created_at, updated_at, deleted_at
-		FROM users 
-		WHERE password_reset_token = $1 AND deleted_at IS NULL
-		  AND password_reset_expires_at > NOW()`
-
 	var user User
-	err := r.db.QueryRow(ctx, query, token).Scan(
-		&user.ID, &user.Email, &user.Name, &user.Password, &user.Active,
-		&user.TeamID, &user.Role, &user.EmailVerified,
-		&user.EmailVerificationToken, &user.EmailVerificationExpiresAt,
-		&user.PasswordResetToken, &user.PasswordResetExpiresAt,
-		&user.AvatarURL, &user.Timezone, &user.Language,
-		&user.LastLoginAt, &user.LastLoginIP, &user.LoginCount,
-		&user.FailedLoginAttempts, &user.LockedUntil, &user.PasswordChangedAt,
-		&user.Metadata, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	result := r.db.WithContext(ctx).Where("password_reset_token = ? AND password_reset_expires_at > ?", token, time.Now()).First(&user)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("invalid or expired reset token")
 		}
-		r.logger.Error("Failed to get user by reset token", "error", err)
+		r.logger.Error("Failed to get user by reset token", "error", result.Error)
 		return nil, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to retrieve user")
 	}
 
@@ -634,8 +465,8 @@ func (r *PostgresRepository) IncrementFailedLoginAtomic(ctx context.Context, use
 		return errors.NewValidationError("user ID is required")
 	}
 
-	// Use UPDATE with conditional logic to handle increment and lock atomically
-	query := `
+	// Use GORM's raw SQL for this complex atomic update
+	result := r.db.WithContext(ctx).Exec(`
 		UPDATE users SET
 			failed_login_attempts = failed_login_attempts + 1,
 			locked_until = CASE 
@@ -643,16 +474,14 @@ func (r *PostgresRepository) IncrementFailedLoginAtomic(ctx context.Context, use
 				ELSE locked_until
 			END,
 			updated_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL`
+		WHERE id = ? AND deleted_at IS NULL`, userID)
 
-	result, err := r.db.Exec(ctx, query, userID)
-	if err != nil {
-		r.logger.Error("Failed to increment failed login attempts", "error", err, "user_id", userID)
+	if result.Error != nil {
+		r.logger.Error("Failed to increment failed login attempts", "error", result.Error, "user_id", userID)
 		return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to update failed login attempts")
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return errors.NewNotFoundError("user not found")
 	}
 
@@ -666,25 +495,23 @@ func (r *PostgresRepository) UpdateLastLoginAtomic(ctx context.Context, userID, 
 		return errors.NewValidationError("user ID is required")
 	}
 
-	// Use UPDATE to atomically reset failed attempts and update login info
-	query := `
+	// Use GORM's raw SQL for this atomic update
+	result := r.db.WithContext(ctx).Exec(`
 		UPDATE users SET
 			last_login_at = NOW(),
-			last_login_ip = $2,
+			last_login_ip = ?,
 			login_count = login_count + 1,
 			failed_login_attempts = 0,
 			locked_until = NULL,
 			updated_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL`
+		WHERE id = ? AND deleted_at IS NULL`, ipAddress, userID)
 
-	result, err := r.db.Exec(ctx, query, userID, ipAddress)
-	if err != nil {
-		r.logger.Error("Failed to update last login", "error", err, "user_id", userID)
+	if result.Error != nil {
+		r.logger.Error("Failed to update last login", "error", result.Error, "user_id", userID)
 	return errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "failed to update last login")
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return errors.NewNotFoundError("user not found")
 	}
 
@@ -706,15 +533,15 @@ func (s *Service) SetEmailChangeToken(ctx context.Context, userID, newEmail stri
 		return "", err
 	}
 
-	// For now, store this in metadata - in production, you'd have a separate table
-	if user.Metadata == nil {
-		user.Metadata = make(map[string]interface{})
+	// For now, store this in settings - in production, you'd have a separate table
+	if user.Settings == nil {
+		user.Settings = make(map[string]interface{})
 	}
 
 	expiresAt := time.Now().Add(1 * time.Hour)
-	user.Metadata["email_change_token"] = token
-	user.Metadata["email_change_new_email"] = newEmail
-	user.Metadata["email_change_expires_at"] = expiresAt
+	user.Settings["email_change_token"] = token
+	user.Settings["email_change_new_email"] = newEmail
+	user.Settings["email_change_expires_at"] = expiresAt
 
 	err = s.repo.UpdateUser(ctx, user)
 	if err != nil {
@@ -731,7 +558,7 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, hashedPassword str
 		return err
 	}
 
-	user.Password = hashedPassword
+	user.PasswordHash = hashedPassword
 	user.PasswordChangedAt = time.Now()
 	user.FailedLoginAttempts = 0
 	user.LockedUntil = nil
@@ -799,12 +626,6 @@ func (s *Service) GenerateBackupCodes(ctx context.Context, userID string) ([]str
 	return []string{"123456", "789012", "345678"}, nil
 }
 
-// MFASetupData holds MFA setup information
-type MFASetupData struct {
-	Secret      string   `json:"secret"`
-	QRCodeURL   string   `json:"qr_code_url"`
-	BackupCodes []string `json:"backup_codes"`
-}
 
 // RevokeAPIKey revokes an API key (stub)
 func (s *Service) RevokeAPIKey(ctx context.Context, keyID, userID, ipAddress string) error {
