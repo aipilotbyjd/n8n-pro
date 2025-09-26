@@ -12,14 +12,11 @@ import (
 
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/config"
+	"n8n-pro/internal/database"
 	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/teams"
 	"n8n-pro/internal/workflows"
 	"n8n-pro/pkg/logger"
-
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 const usage = `
@@ -604,29 +601,30 @@ func (cli *AdminCLI) systemMetrics(ctx context.Context, jsonOutput bool) error {
 
 // Migration command implementations
 func (cli *AdminCLI) migrateUp(ctx context.Context, args []string, jsonOutput bool) error {
-	cli.logger.Info("Running database migrations up...")
+	cli.logger.Info("Running GORM database migrations...")
 
-	// Construct DSN from config
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cli.cfg.Database.Username,
-		cli.cfg.Database.Password,
-		cli.cfg.Database.Host,
-		cli.cfg.Database.Port,
-		cli.cfg.Database.Database,
-	)
-
-	migrationsPath := "file://./internal/storage/migrations"
-
-	m, err := migrate.New(migrationsPath, dsn)
+	// Initialize database for GORM migrations
+	db, err := database.Initialize(cli.cfg.Database)
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer db.Close()
+
+	// Create migration manager
+	migrationManager := database.NewMigrationManager(db)
+
+	// Run migrations
+	if err := migrationManager.RunMigrations(); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("failed to run migrations up: %w", err)
+	cli.logger.Info("GORM migrations completed successfully")
+
+	if jsonOutput {
+		status := map[string]string{"status": "success", "message": "Migrations completed"}
+		return json.NewEncoder(os.Stdout).Encode(status)
 	}
 
-	cli.logger.Info("Database migrations completed successfully.")
 	return nil
 }
 
@@ -658,38 +656,41 @@ func (cli *AdminCLI) migrateDown(ctx context.Context, args []string, jsonOutput 
 }
 
 func (cli *AdminCLI) migrateStatus(ctx context.Context, jsonOutput bool) error {
-	// Construct DSN from config
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cli.cfg.Database.Username,
-		cli.cfg.Database.Password,
-		cli.cfg.Database.Host,
-		cli.cfg.Database.Port,
-		cli.cfg.Database.Database,
-	)
-
-	migrationsPath := "file://./internal/storage/migrations"
-
-	m, err := migrate.New(migrationsPath, dsn)
+	// Initialize database
+	db, err := database.Initialize(cli.cfg.Database)
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		return fmt.Errorf("failed to initialize database: %w", err)
 	}
+	defer db.Close()
 
-	version, dirty, err := m.Version()
+	// Create migration manager
+	migrationManager := database.NewMigrationManager(db)
+
+	// Get migration status
+	migrations, err := migrationManager.GetMigrationStatus()
 	if err != nil {
 		return fmt.Errorf("failed to get migration status: %w", err)
 	}
 
 	if jsonOutput {
-		status := map[string]interface{}{
-			"version": version,
-			"dirty":   dirty,
-		}
-		return json.NewEncoder(os.Stdout).Encode(status)
+		return json.NewEncoder(os.Stdout).Encode(migrations)
 	}
 
 	fmt.Printf("Migration Status:\n")
-	fmt.Printf("Version: %d\n", version)
-	fmt.Printf("Dirty: %t\n", dirty)
+	fmt.Printf("Total migrations: %d\n\n", len(migrations))
+
+	for _, migration := range migrations {
+		status := "✅ Applied"
+		if migration.RolledBack {
+			status = "🔄 Rolled Back"
+		}
+
+		fmt.Printf("%s %s (%s) - %s\n", 
+			status,
+			migration.Version,
+			migration.Name,
+			migration.AppliedAt.Format("2006-01-02 15:04:05"))
+	}
 
 	return nil
 }

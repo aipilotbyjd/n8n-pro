@@ -27,12 +27,13 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 # Service binaries
-SERVICES := api worker scheduler webhook admin
+SERVICES := api worker scheduler webhook admin migrate
 API_BINARY := $(BUILD_DIR)/api
 WORKER_BINARY := $(BUILD_DIR)/worker
 SCHEDULER_BINARY := $(BUILD_DIR)/scheduler
 WEBHOOK_BINARY := $(BUILD_DIR)/webhook
 ADMIN_BINARY := $(BUILD_DIR)/admin
+MIGRATE_BINARY := $(BUILD_DIR)/migrate
 
 # Docker compose files
 COMPOSE_FILE := docker-compose.yml
@@ -73,7 +74,7 @@ help: ## Show this help message
 build-services: build-all ## Build all services
 
 .PHONY: build-all
-build-all: $(API_BINARY) $(WORKER_BINARY) $(SCHEDULER_BINARY) $(WEBHOOK_BINARY) $(ADMIN_BINARY) ## Build all service binaries
+build-all: $(API_BINARY) $(WORKER_BINARY) $(SCHEDULER_BINARY) $(WEBHOOK_BINARY) $(ADMIN_BINARY) $(MIGRATE_BINARY) ## Build all service binaries
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
@@ -97,6 +98,10 @@ $(WEBHOOK_BINARY): $(BUILD_DIR) ## Build Webhook service
 $(ADMIN_BINARY): $(BUILD_DIR) ## Build Admin CLI
 	@echo "$(BLUE)Building Admin CLI...$(RESET)"
 	$(GOBUILD) $(LDFLAGS) -o $(ADMIN_BINARY) ./cmd/admin
+
+$(MIGRATE_BINARY): $(BUILD_DIR) ## Build Migration CLI
+	@echo "$(BLUE)Building Migration CLI...$(RESET)"
+	$(GOBUILD) $(LDFLAGS) -o $(MIGRATE_BINARY) ./cmd/migrate
 
 .PHONY: build-linux
 build-linux: ## Build all binaries for Linux
@@ -256,22 +261,29 @@ db-down: ## Stop database
 	docker-compose stop postgres redis
 
 .PHONY: db-migrate
-db-migrate: $(ADMIN_BINARY) ## Run database migrations
-	@echo "$(GREEN)Running database migrations...$(RESET)"
-	DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) DB_NAME=$(DB_NAME) DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) ./$(ADMIN_BINARY) migrate up
+db-migrate: $(MIGRATE_BINARY) ## Run database migrations using GORM
+	@echo "$(GREEN)Running GORM database migrations...$(RESET)"
+	./$(MIGRATE_BINARY) up
 
-.PHONY: db-migrate-down
-db-migrate-down: $(ADMIN_BINARY) ## Rollback database migrations
+.PHONY: db-migrate-status
+db-migrate-status: $(MIGRATE_BINARY) ## Show migration status
+	@echo "$(GREEN)Checking migration status...$(RESET)"
+	./$(MIGRATE_BINARY) status
+
+.PHONY: db-migrate-rollback
+db-migrate-rollback: $(MIGRATE_BINARY) ## Rollback last batch of migrations
 	@echo "$(YELLOW)Rolling back database migrations...$(RESET)"
-	./$(ADMIN_BINARY) migrate down
+	./$(MIGRATE_BINARY) rollback
 
-.PHONY: db-seed
-db-seed: $(ADMIN_BINARY) ## Seed database with test data
-	@echo "$(GREEN)Seeding database...$(RESET)"
-	./$(ADMIN_BINARY) seed
+.PHONY: db-migrate-health
+db-migrate-health: $(MIGRATE_BINARY) ## Check database health
+	@echo "$(GREEN)Checking database health...$(RESET)"
+	./$(MIGRATE_BINARY) health
 
 .PHONY: db-reset
-db-reset: db-migrate-down db-migrate db-seed ## Reset database (migrate down, up, and seed)
+db-reset: $(MIGRATE_BINARY) ## Reset database (DEVELOPMENT ONLY)
+	@echo "$(RED)WARNING: This will delete ALL data!$(RESET)"
+	./$(MIGRATE_BINARY) reset
 
 .PHONY: db-shell
 db-shell: ## Connect to database shell

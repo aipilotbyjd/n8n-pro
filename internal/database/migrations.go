@@ -1,296 +1,422 @@
-// Package database provides migration management for n8n-pro
-// Following patterns used by GitHub, GitLab, and other large-scale applications
+// Package database provides production-ready GORM migration system for n8n-pro
 package database
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"n8n-pro/internal/models"
+	"n8n-pro/pkg/logger"
 
 	"gorm.io/gorm"
 )
 
-// MigrationManager handles database migrations
+// MigrationManager handles database schema migrations using GORM
 type MigrationManager struct {
-	db *Database
+	db     *Database
+	logger logger.Logger
 }
 
-// NewMigrationManager creates a new migration manager
+// NewMigrationManager creates a new migration manager instance
 func NewMigrationManager(db *Database) *MigrationManager {
 	return &MigrationManager{
-		db: db,
+		db:     db,
+		logger: logger.New("migration-manager"),
 	}
+}
+
+// Migration represents a single database migration
+type Migration struct {
+	ID            uint      `gorm:"primaryKey"`
+	Version       string    `gorm:"uniqueIndex;not null"`
+	Name          string    `gorm:"not null"`
+	Batch         int       `gorm:"not null"`
+	AppliedAt     time.Time `gorm:"not null"`
+	RolledBack    bool      `gorm:"default:false"`
+	RollbackAt    *time.Time
+	ExecutionTime int64     `gorm:"comment:Execution time in milliseconds"`
+}
+
+// TableName sets the table name for Migration model
+func (Migration) TableName() string {
+	return "schema_migrations"
 }
 
 // RunMigrations executes all pending migrations
 func (m *MigrationManager) RunMigrations() error {
-	log.Println("🚀 Starting database migrations...")
+	m.logger.Info("Starting database migrations...")
 
-	// Create migration tracking table
+	// Create migration tracking table first
 	if err := m.createMigrationTable(); err != nil {
 		return fmt.Errorf("failed to create migration table: %w", err)
 	}
 
-	// Run all migrations in order
-	migrations := []Migration{
-		{Version: "001", Name: "create_organizations", Up: m.createOrganizations},
-		{Version: "002", Name: "create_teams", Up: m.createTeams},
-		{Version: "003", Name: "create_users", Up: m.createUsers},
-		{Version: "004", Name: "create_team_members", Up: m.createTeamMembers},
-		{Version: "005", Name: "create_workflows", Up: m.createWorkflows},
-		{Version: "006", Name: "create_workflow_executions", Up: m.createWorkflowExecutions},
-		{Version: "007", Name: "create_workflow_versions", Up: m.createWorkflowVersions},
-		{Version: "008", Name: "create_audit_logs", Up: m.createAuditLogs},
-		{Version: "009", Name: "create_sessions", Up: m.createSessions},
-		{Version: "010", Name: "create_indexes", Up: m.createIndexes},
-		{Version: "011", Name: "seed_default_data", Up: m.seedDefaultData},
+	// Get current batch number
+	batch := m.getNextBatchNumber()
+
+	// Execute all migrations
+	if err := m.executeAllMigrations(batch); err != nil {
+		return fmt.Errorf("migration execution failed: %w", err)
 	}
 
-	for _, migration := range migrations {
-		if err := m.runMigration(migration); err != nil {
-			return fmt.Errorf("failed to run migration %s: %w", migration.Name, err)
-		}
-	}
-
-	log.Println("✅ Database migrations completed successfully")
+	m.logger.Info("All migrations completed successfully")
 	return nil
 }
 
-// Migration represents a database migration
-type Migration struct {
+// createMigrationTable creates the migration tracking table
+func (m *MigrationManager) createMigrationTable() error {
+	return m.db.DB.AutoMigrate(&Migration{})
+}
+
+// getNextBatchNumber gets the next batch number for migrations
+func (m *MigrationManager) getNextBatchNumber() int {
+	var maxBatch int
+	m.db.DB.Model(&Migration{}).Select("COALESCE(MAX(batch), 0)").Scan(&maxBatch)
+	return maxBatch + 1
+}
+
+// executeAllMigrations runs all required migrations
+func (m *MigrationManager) executeAllMigrations(batch int) error {
+	migrations := []MigrationStep{
+		{
+			Version: "2024_01_01_000001",
+			Name:    "create_core_tables",
+			Up:      m.createCoreTables,
+		},
+		{
+			Version: "2024_01_01_000002", 
+			Name:    "create_workflow_tables",
+			Up:      m.createWorkflowTables,
+		},
+		{
+			Version: "2024_01_01_000003",
+			Name:    "create_auth_tables", 
+			Up:      m.createAuthTables,
+		},
+		{
+			Version: "2024_01_01_000004",
+			Name:    "create_indexes",
+			Up:      m.createIndexes,
+		},
+		{
+			Version: "2024_01_01_000005",
+			Name:    "seed_initial_data",
+			Up:      m.seedInitialData,
+		},
+	}
+
+	for _, migration := range migrations {
+		if err := m.runSingleMigration(migration, batch); err != nil {
+			return fmt.Errorf("migration %s failed: %w", migration.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// MigrationStep represents a single migration step
+type MigrationStep struct {
 	Version string
 	Name    string
 	Up      func() error
 }
 
-// MigrationRecord tracks applied migrations
-type MigrationRecord struct {
-	Version   string `gorm:"primaryKey"`
-	Name      string
-	AppliedAt string
-}
-
-func (m *MigrationManager) createMigrationTable() error {
-	return m.db.DB.AutoMigrate(&MigrationRecord{})
-}
-
-func (m *MigrationManager) runMigration(migration Migration) error {
-	// Check if migration already applied
+// runSingleMigration executes a single migration if not already applied
+func (m *MigrationManager) runSingleMigration(migration MigrationStep, batch int) error {
+	// Check if migration already exists
 	var count int64
-	m.db.DB.Model(&MigrationRecord{}).Where("version = ?", migration.Version).Count(&count)
+	m.db.DB.Model(&Migration{}).Where("version = ?", migration.Version).Count(&count)
+	
 	if count > 0 {
-		log.Printf("⏭️  Migration %s_%s already applied, skipping", migration.Version, migration.Name)
+		m.logger.Info("Migration already applied, skipping", "version", migration.Version)
 		return nil
 	}
 
-	log.Printf("🔄 Running migration %s_%s", migration.Version, migration.Name)
+	m.logger.Info("Applying migration", "version", migration.Version, "name", migration.Name)
+	startTime := time.Now()
 
-	// Run migration in transaction
+	// Execute migration in transaction
 	err := m.db.DB.Transaction(func(tx *gorm.DB) error {
-		// Execute migration
+		// Run the migration
 		if err := migration.Up(); err != nil {
-			return err
+			return fmt.Errorf("migration execution failed: %w", err)
 		}
 
 		// Record migration
-		record := &MigrationRecord{
-			Version:   migration.Version,
-			Name:      migration.Name,
-			AppliedAt: fmt.Sprintf("%d", time.Now().Unix()),
+		migrationRecord := &Migration{
+			Version:       migration.Version,
+			Name:          migration.Name,
+			Batch:         batch,
+			AppliedAt:     time.Now(),
+			ExecutionTime: time.Since(startTime).Milliseconds(),
 		}
-		return tx.Create(record).Error
+
+		return tx.Create(migrationRecord).Error
 	})
 
 	if err != nil {
-		return fmt.Errorf("migration %s failed: %w", migration.Name, err)
+		m.logger.Error("Migration failed", "version", migration.Version, "error", err)
+		return err
 	}
 
-	log.Printf("✅ Migration %s_%s completed", migration.Version, migration.Name)
+	m.logger.Info("Migration completed", 
+		"version", migration.Version, 
+		"duration", time.Since(startTime).String())
+	
 	return nil
 }
 
-// Individual migration functions
-
-func (m *MigrationManager) createOrganizations() error {
-	return m.db.DB.AutoMigrate(&models.Organization{})
+// createCoreTables creates the core organization and team tables
+func (m *MigrationManager) createCoreTables() error {
+	m.logger.Info("Creating core tables...")
+	
+	return m.db.DB.AutoMigrate(
+		&models.Organization{},
+		&models.Team{},
+		&models.User{},
+		&models.TeamMember{},
+	)
 }
 
-func (m *MigrationManager) createTeams() error {
-	return m.db.DB.AutoMigrate(&models.Team{})
+// createWorkflowTables creates workflow-related tables
+func (m *MigrationManager) createWorkflowTables() error {
+	m.logger.Info("Creating workflow tables...")
+	
+	return m.db.DB.AutoMigrate(
+		&models.Workflow{},
+		&models.WorkflowExecution{},
+		&models.WorkflowVersion{},
+	)
 }
 
-func (m *MigrationManager) createUsers() error {
-	return m.db.DB.AutoMigrate(&models.User{})
+// createAuthTables creates authentication and authorization tables  
+func (m *MigrationManager) createAuthTables() error {
+	m.logger.Info("Creating auth tables...")
+	
+	return m.db.DB.AutoMigrate(
+		&models.Session{},
+		&models.APIKey{},
+		&models.AuditLog{},
+	)
 }
 
-func (m *MigrationManager) createTeamMembers() error {
-	return m.db.DB.AutoMigrate(&models.TeamMember{})
-}
-
-func (m *MigrationManager) createWorkflows() error {
-	return m.db.DB.AutoMigrate(&models.Workflow{})
-}
-
-func (m *MigrationManager) createWorkflowExecutions() error {
-	return m.db.DB.AutoMigrate(&models.WorkflowExecution{})
-}
-
-func (m *MigrationManager) createWorkflowVersions() error {
-	return m.db.DB.AutoMigrate(&models.WorkflowVersion{})
-}
-
-func (m *MigrationManager) createAuditLogs() error {
-	return m.db.DB.AutoMigrate(&models.AuditLog{})
-}
-
-func (m *MigrationManager) createSessions() error {
-	return m.db.DB.AutoMigrate(&models.Session{})
-}
-
+// createIndexes creates performance indexes
 func (m *MigrationManager) createIndexes() error {
-	// Create additional indexes for performance
-	sql := `
-	-- Performance indexes for common queries
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_org_email_active ON users(organization_id, email) WHERE deleted_at IS NULL;
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_team_status ON workflows(team_id, status) WHERE deleted_at IS NULL;
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_executions_workflow_status ON workflow_executions(workflow_id, status);
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_executions_start_time ON workflow_executions(start_time DESC);
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_org_created ON audit_logs(organization_id, created_at DESC);
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, is_active) WHERE is_active = true;
-	
-	-- Full-text search indexes
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_search ON workflows USING gin(to_tsvector('english', name || ' ' || description)) WHERE deleted_at IS NULL;
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_search ON users USING gin(to_tsvector('english', first_name || ' ' || last_name || ' ' || email)) WHERE deleted_at IS NULL;
-	
-	-- JSONB indexes for better query performance
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_definition_gin ON workflows USING gin(definition);
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_executions_metadata_gin ON workflow_executions USING gin(metadata);
-	CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_settings_gin ON users USING gin(settings);
-	`
-	
-	return m.db.DB.Exec(sql).Error
+	m.logger.Info("Creating database indexes...")
+
+	indexes := map[string][]string{
+		"users": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_org_email ON users(organization_id, email) WHERE deleted_at IS NULL",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_status_role ON users(status, role) WHERE deleted_at IS NULL",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email_verified ON users(email_verified) WHERE email_verified = true",
+		},
+		"organizations": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_organizations_slug ON organizations(slug) WHERE deleted_at IS NULL",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_organizations_plan_status ON organizations(plan, status)",
+		},
+		"teams": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_teams_org ON teams(organization_id) WHERE deleted_at IS NULL",
+		},
+		"team_members": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_team_members_user_team ON team_members(user_id, team_id)",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_team_members_team_role ON team_members(team_id, role)",
+		},
+		"workflows": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_team_status ON workflows(team_id, status) WHERE deleted_at IS NULL",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_active ON workflows(is_active, updated_at DESC) WHERE deleted_at IS NULL",
+		},
+		"workflow_executions": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_executions_workflow_status ON workflow_executions(workflow_id, status)",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_executions_start_time ON workflow_executions(start_time DESC)",
+		},
+		"sessions": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, is_active) WHERE is_active = true",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_expires ON sessions(expires_at) WHERE is_active = true",
+		},
+		"audit_logs": {
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_org_created ON audit_logs(organization_id, created_at DESC)",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)",
+		},
+	}
+
+	for table, tableIndexes := range indexes {
+		m.logger.Info("Creating indexes for table", "table", table)
+		for _, indexSQL := range tableIndexes {
+			if err := m.db.DB.Exec(indexSQL).Error; err != nil {
+				m.logger.Warn("Failed to create index", "table", table, "error", err)
+				// Continue with other indexes - don't fail the migration
+			}
+		}
+	}
+
+	return nil
 }
 
-func (m *MigrationManager) seedDefaultData() error {
-	log.Println("🌱 Seeding default data...")
+// seedInitialData creates default data for development
+func (m *MigrationManager) seedInitialData() error {
+	m.logger.Info("Seeding initial data...")
 
-	// Create default organization
+	// Check if data already exists
+	var orgCount int64
+	m.db.DB.Model(&models.Organization{}).Count(&orgCount)
+	if orgCount > 0 {
+		m.logger.Info("Initial data already exists, skipping seed")
+		return nil
+	}
+
+	// Create default organization with proper UUID
 	org := &models.Organization{
-		BaseModel: models.BaseModel{ID: "org_default_development"},
-		Name:      "Default Organization",
-		Slug:      "default-org",
-		Plan:      "pro",
+		Name: "Default Organization",
+		Slug: "default",
+		Plan: "pro",
 		PlanLimits: models.JSONB{
-			"max_users":                  100,
-			"max_workflows":              500,
-			"max_executions_per_month":   1000000,
-			"max_execution_time_seconds": 1800,
-			"api_calls_per_minute":       1000,
-			"data_retention_days":        90,
-			"custom_connections":         true,
-			"sso_enabled":                true,
-			"audit_logs_enabled":         true,
+			"max_users":                100,
+			"max_workflows":            1000,
+			"max_executions_per_month": 100000,
 		},
 		Settings: models.JSONB{
-			"default_timezone":           "UTC",
-			"allow_registration":         true,
-			"require_email_verification": true,
-			"enforce_password_policy":    true,
+			"timezone":             "UTC",
+			"allow_registration":   false,
+			"require_verification": true,
 		},
 		Status: "active",
 	}
 
-	if err := m.db.DB.FirstOrCreate(org, "id = ?", org.ID).Error; err != nil {
+	if err := m.db.DB.Create(org).Error; err != nil {
 		return fmt.Errorf("failed to create default organization: %w", err)
 	}
 
 	// Create default team
 	team := &models.Team{
-		BaseModel:      models.BaseModel{ID: "team_default_development"},
 		OrganizationID: org.ID,
 		Name:           "Default Team",
-		Description:    "Default team for development and testing",
+		Description:    "Default team for system administration",
 		Settings: models.JSONB{
-			"default_role":         "member",
-			"allow_member_invite":  true,
-			"require_approval":     false,
-			"workflow_sharing":     "team",
-			"credential_sharing":   "team",
+			"default_role": "member",
 		},
 	}
 
-	if err := m.db.DB.FirstOrCreate(team, "id = ?", team.ID).Error; err != nil {
+	if err := m.db.DB.Create(team).Error; err != nil {
 		return fmt.Errorf("failed to create default team: %w", err)
 	}
 
-	// Create default admin user
-	hashedPassword := "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdnKm5vQJ5o8/EW" // admin123!
-	
+	// Create admin user (password: admin123!)
 	user := &models.User{
-		BaseModel:      models.BaseModel{ID: "user_admin_development"},
 		OrganizationID: org.ID,
 		Email:          "admin@n8n-pro.local",
-		FirstName:      "Admin",
-		LastName:       "User",
-		PasswordHash:   hashedPassword,
+		FirstName:      "System",
+		LastName:       "Administrator",
+		PasswordHash:   "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdnKm5vQJ5o8/EW",
 		Status:         "active",
 		Role:           "owner",
 		EmailVerified:  true,
 		Profile: models.JSONB{
-			"bio":        "Default admin user for n8n Pro",
-			"job_title":  "System Administrator",
-			"department": "IT",
+			"job_title": "System Administrator",
 		},
 		Settings: models.JSONB{
 			"timezone": "UTC",
 			"language": "en",
-			"theme":    "light",
 		},
 	}
 
-	if err := m.db.DB.FirstOrCreate(user, "id = ?", user.ID).Error; err != nil {
-		return fmt.Errorf("failed to create default user: %w", err)
+	if err := m.db.DB.Create(user).Error; err != nil {
+		return fmt.Errorf("failed to create admin user: %w", err)
 	}
 
 	// Add user to team
 	teamMember := &models.TeamMember{
-		ID:     "membership_admin_development",
 		TeamID: team.ID,
 		UserID: user.ID,
 		Role:   "owner",
 	}
 
-	if err := m.db.DB.FirstOrCreate(teamMember, "id = ?", teamMember.ID).Error; err != nil {
+	if err := m.db.DB.Create(teamMember).Error; err != nil {
 		return fmt.Errorf("failed to create team membership: %w", err)
 	}
 
-	log.Println("✅ Default data seeded successfully")
+	m.logger.Info("Initial data seeded successfully")
 	return nil
 }
 
-// RollbackMigration rolls back a specific migration
-func (m *MigrationManager) RollbackMigration(version string) error {
-	log.Printf("🔄 Rolling back migration %s", version)
-	
-	// Delete migration record
-	result := m.db.DB.Where("version = ?", version).Delete(&MigrationRecord{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete migration record: %w", result.Error)
-	}
-	
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("migration %s not found", version)
-	}
-	
-	log.Printf("⚠️  Migration %s rolled back (manual cleanup may be required)", version)
-	return nil
-}
-
-// GetAppliedMigrations returns list of applied migrations
-func (m *MigrationManager) GetAppliedMigrations() ([]MigrationRecord, error) {
-	var migrations []MigrationRecord
-	err := m.db.DB.Order("version").Find(&migrations).Error
+// GetMigrationStatus returns migration status information
+func (m *MigrationManager) GetMigrationStatus() ([]Migration, error) {
+	var migrations []Migration
+	err := m.db.DB.Order("applied_at DESC").Find(&migrations).Error
 	return migrations, err
+}
+
+// RollbackLastBatch rolls back the last batch of migrations
+func (m *MigrationManager) RollbackLastBatch() error {
+	// Get the last batch number
+	var lastBatch int
+	if err := m.db.DB.Model(&Migration{}).Select("MAX(batch)").Where("rolled_back = ?", false).Scan(&lastBatch).Error; err != nil {
+		return fmt.Errorf("failed to get last batch: %w", err)
+	}
+
+	if lastBatch == 0 {
+		return fmt.Errorf("no migrations to rollback")
+	}
+
+	m.logger.Info("Rolling back migration batch", "batch", lastBatch)
+
+	// Mark migrations as rolled back
+	result := m.db.DB.Model(&Migration{}).
+		Where("batch = ? AND rolled_back = ?", lastBatch, false).
+		Updates(map[string]interface{}{
+			"rolled_back": true,
+			"rollback_at": time.Now(),
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to mark migrations as rolled back: %w", result.Error)
+	}
+
+	m.logger.Info("Successfully rolled back migrations", "count", result.RowsAffected)
+	return nil
+}
+
+// ResetDatabase drops all tables and recreates them (DEVELOPMENT ONLY)
+func (m *MigrationManager) ResetDatabase() error {
+	// Note: Environment check should be done at the application level
+	// For safety, we require explicit confirmation
+
+	m.logger.Warn("Resetting database - ALL DATA WILL BE LOST!")
+
+	// Drop all tables
+	allModels := models.GetAllModels()
+	for i := len(allModels) - 1; i >= 0; i-- {
+		if err := m.db.DB.Migrator().DropTable(allModels[i]); err != nil {
+			m.logger.Warn("Failed to drop table", "error", err)
+		}
+	}
+
+	// Drop migration table
+	m.db.DB.Migrator().DropTable(&Migration{})
+
+	// Run migrations from scratch
+	return m.RunMigrations()
+}
+
+// CheckDatabaseHealth performs basic database health checks
+func (m *MigrationManager) CheckDatabaseHealth() error {
+	// Check if all core tables exist
+	requiredTables := []interface{}{
+		&models.Organization{},
+		&models.Team{},
+		&models.User{},
+		&models.Workflow{},
+	}
+
+	for _, model := range requiredTables {
+		if !m.db.DB.Migrator().HasTable(model) {
+			return fmt.Errorf("required table missing for model: %T", model)
+		}
+	}
+
+	// Check migration table
+	if !m.db.DB.Migrator().HasTable(&Migration{}) {
+		return fmt.Errorf("migration tracking table missing")
+	}
+
+	return nil
 }

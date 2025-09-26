@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -163,20 +162,20 @@ func (db *Database) WithContext(ctx context.Context) *gorm.DB {
 	return db.DB.WithContext(ctx)
 }
 
-// AutoMigrate runs database migrations for all models
+// AutoMigrate runs database migrations using the production-ready migration system
 func (db *Database) AutoMigrate() error {
-	log.Println("Running database auto-migration...")
+	log.Println("Running GORM migrations...")
 	
-	// Get all models from the models package
-	allModels := models.GetAllModels()
+	// Use the new migration manager
+	migrationManager := NewMigrationManager(db)
 	
-	// Migrate all models
-	err := db.DB.AutoMigrate(allModels...)
+	// Run all migrations in proper order
+	err := migrationManager.RunMigrations()
 	if err != nil {
-		return fmt.Errorf("auto-migration failed: %w", err)
+		return fmt.Errorf("migration failed: %w", err)
 	}
 	
-	log.Println("Database auto-migration completed successfully")
+	log.Println("GORM migrations completed successfully")
 	return nil
 }
 
