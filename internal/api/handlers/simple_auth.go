@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"n8n-pro/internal/auth"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/models"
 	"n8n-pro/pkg/errors"
@@ -68,7 +69,22 @@ type SimpleUserInfo struct {
 func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) {
 	var req SimpleLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, errors.NewValidationError("Invalid request body: "+err.Error()))
+		writeError(w, errors.NewValidationError("Invalid request body. Please check your data format.").
+			WithDetails("Request must be valid JSON with email and password fields"))
+		return
+	}
+
+	// Validate email format
+	if err := auth.ValidateEmail(req.Email); err != nil {
+		h.logger.Warn("Login attempt with invalid email format", "email", req.Email)
+		writeError(w, err)
+		return
+	}
+
+	// Validate password is not empty
+	if strings.TrimSpace(req.Password) == "" {
+		writeError(w, errors.NewValidationError("Password is required").
+			WithDetails("Please enter your password"))
 		return
 	}
 
@@ -77,19 +93,35 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 	result := h.db.Where("email = ? AND deleted_at IS NULL", req.Email).First(&user)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
-			h.logger.Warn("Login attempt with invalid email", "email", req.Email)
-			writeError(w, errors.NewUnauthorizedError("Invalid credentials"))
+			h.logger.Warn("Login attempt with non-existent email", "email", req.Email)
+			// Use generic error to prevent user enumeration
+			writeError(w, errors.NewInvalidLoginError())
 			return
 		}
-		h.logger.Error("Database error during login", "error", result.Error)
-		writeError(w, errors.InternalError("Authentication failed"))
+		h.logger.Error("Database error during login", "email", req.Email, "error", result.Error)
+		writeError(w, errors.InternalError("Unable to process your login request at this time").
+			WithDetails("Please try again later or contact support if the problem persists"))
 		return
 	}
 
 	// Check if user is active
 	if user.Status != "active" {
 		h.logger.Warn("Login attempt for inactive user", "user_id", user.ID, "status", user.Status)
-		writeError(w, errors.NewUnauthorizedError("Account is disabled"))
+		switch user.Status {
+		case "disabled", "suspended":
+			writeError(w, errors.NewAccountDisabledError())
+		case "pending":
+			writeError(w, errors.NewAccountNotVerifiedError())
+		default:
+			writeError(w, errors.NewAccountDisabledError())
+		}
+		return
+	}
+
+	// Check for account lockout due to failed attempts
+	if user.FailedLoginAttempts >= 5 { // Configurable threshold
+		h.logger.Warn("Login attempt for locked account", "user_id", user.ID, "failed_attempts", user.FailedLoginAttempts)
+		writeError(w, errors.NewAccountLockedError())
 		return
 	}
 
@@ -100,7 +132,8 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 		// Increment failed login attempts
 		h.db.Model(&user).UpdateColumn("failed_login_attempts", gorm.Expr("failed_login_attempts + 1"))
 		
-		writeError(w, errors.NewUnauthorizedError("Invalid credentials"))
+		// Use generic error to prevent user enumeration
+		writeError(w, errors.NewInvalidLoginError())
 		return
 	}
 
@@ -108,7 +141,8 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 	var org models.Organization
 	if err := h.db.Where("id = ?", user.OrganizationID).First(&org).Error; err != nil {
 		h.logger.Error("Failed to get organization for user", "user_id", user.ID, "org_id", user.OrganizationID, "error", err)
-		writeError(w, errors.InternalError("Failed to retrieve user organization"))
+		writeError(w, errors.InternalError("Unable to complete your login at this time").
+			WithDetails("There was an issue retrieving your organization information. Please try again later or contact support."))
 		return
 	}
 	
@@ -125,7 +159,8 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 	)
 	if err != nil {
 		h.logger.Error("Failed to generate tokens", "user_id", user.ID, "error", err)
-		writeError(w, errors.InternalError("Failed to generate authentication tokens"))
+		writeError(w, errors.InternalError("Unable to complete your login at this time").
+			WithDetails("There was an issue generating your authentication tokens. Please try again later or contact support."))
 		return
 	}
 
@@ -163,13 +198,15 @@ func (h *SimpleAuthHandler) SimpleLogin(w http.ResponseWriter, r *http.Request) 
 func (h *SimpleAuthHandler) SimpleRegister(w http.ResponseWriter, r *http.Request) {
 	var req SimpleRegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, errors.NewValidationError("Invalid request body: "+err.Error()))
+		writeError(w, errors.NewValidationError("Invalid request body. Please check your data format.").
+			WithDetails("Request must be valid JSON with name, email, and password fields"))
 		return
 	}
 
-	// Validate password strength
-	if len(req.Password) < 8 {
-		writeError(w, errors.NewValidationError("Password must be at least 8 characters long"))
+	// Validate all registration data using our enhanced validation
+	if err := auth.ValidateRegistrationData(req.Name, req.Email, req.Password); err != nil {
+		h.logger.Warn("Registration validation failed", "email", req.Email, "error", err)
+		writeError(w, err)
 		return
 	}
 
@@ -177,15 +214,17 @@ func (h *SimpleAuthHandler) SimpleRegister(w http.ResponseWriter, r *http.Reques
 	var existingUser models.User
 	result := h.db.Where("email = ? AND deleted_at IS NULL", req.Email).First(&existingUser)
 	if result.Error == nil {
-		writeError(w, errors.NewValidationError("User with this email already exists"))
+		h.logger.Warn("Registration attempt with existing email", "email", req.Email)
+		writeError(w, errors.NewEmailExistsError(req.Email))
 		return
 	}
 
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		h.logger.Error("Failed to hash password", "error", err)
-		writeError(w, errors.InternalError("Failed to process password"))
+		h.logger.Error("Failed to hash password", "email", req.Email, "error", err)
+		writeError(w, errors.InternalError("Unable to process your password securely").
+			WithDetails("Please try again later or contact support if the problem persists"))
 		return
 	}
 
@@ -221,8 +260,14 @@ func (h *SimpleAuthHandler) SimpleRegister(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.db.Create(org).Error; err != nil {
-		h.logger.Error("Failed to create organization", "error", err)
-		writeError(w, errors.InternalError("Failed to create organization"))
+		h.logger.Error("Failed to create organization", "team_name", req.TeamName, "error", err)
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			writeError(w, errors.NewValidationError("Organization name is already taken").
+				WithDetails("Please choose a different team name"))
+		} else {
+			writeError(w, errors.InternalError("Unable to create your organization at this time").
+				WithDetails("Please try again later or contact support if the problem persists"))
+		}
 		return
 	}
 
@@ -247,7 +292,13 @@ func (h *SimpleAuthHandler) SimpleRegister(w http.ResponseWriter, r *http.Reques
 
 	if err := h.db.Create(user).Error; err != nil {
 		h.logger.Error("Failed to create user", "email", req.Email, "error", err)
-		writeError(w, errors.InternalError("Failed to create user account"))
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			// This shouldn't happen since we checked above, but handle it gracefully
+			writeError(w, errors.NewEmailExistsError(req.Email))
+		} else {
+			writeError(w, errors.InternalError("Unable to create your account at this time").
+				WithDetails("Please try again later or contact support if the problem persists"))
+		}
 		return
 	}
 

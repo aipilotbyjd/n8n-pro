@@ -36,6 +36,19 @@ const (
 	CodeInvalidCredentials ErrorCode = "invalid_credentials"
 	CodeTokenExpired       ErrorCode = "token_expired"
 	CodeTokenInvalid       ErrorCode = "token_invalid"
+	CodeInvalidEmail       ErrorCode = "invalid_email"
+	CodeEmailExists        ErrorCode = "email_exists"
+	CodeAccountLocked      ErrorCode = "account_locked"
+	CodeAccountDisabled    ErrorCode = "account_disabled"
+	CodeAccountNotVerified ErrorCode = "account_not_verified"
+	CodePasswordTooWeak    ErrorCode = "password_too_weak"
+	CodePasswordTooShort   ErrorCode = "password_too_short"
+	CodePasswordNoUppercase ErrorCode = "password_no_uppercase"
+	CodePasswordNoLowercase ErrorCode = "password_no_lowercase"
+	CodePasswordNoNumbers  ErrorCode = "password_no_numbers"
+	CodePasswordNoSpecial  ErrorCode = "password_no_special"
+	CodePasswordCommon     ErrorCode = "password_common"
+	CodeTooManyAttempts    ErrorCode = "too_many_attempts"
 
 	// Authorization errors
 	CodeInsufficientPermissions ErrorCode = "insufficient_permissions"
@@ -254,6 +267,67 @@ func NewExecutionError(message string) *AppError {
 // NewInternalError creates an internal server error with a simple message
 func NewInternalError(message string) *AppError {
 	return New(ErrorTypeInternal, CodeInternal, message)
+}
+
+// Enhanced authentication error constructors
+
+// NewEmailExistsError creates an error for when email already exists
+func NewEmailExistsError(email string) *AppError {
+	return New(ErrorTypeValidation, CodeEmailExists, "An account with this email address already exists").
+		WithContext("email", email).
+		WithDetails("Please use a different email address or try logging in instead")
+}
+
+// NewInvalidEmailError creates an error for invalid email format
+func NewInvalidEmailError(email string) *AppError {
+	return New(ErrorTypeValidation, CodeInvalidEmail, "Please enter a valid email address").
+		WithContext("email", email).
+		WithDetails("Email should be in format: user@example.com")
+}
+
+// NewAccountLockedError creates an error for locked accounts
+func NewAccountLockedError() *AppError {
+	return New(ErrorTypeAuthentication, CodeAccountLocked, "Your account has been temporarily locked due to too many failed login attempts").
+		WithDetails("Please try again later or contact support for assistance")
+}
+
+// NewAccountDisabledError creates an error for disabled accounts
+func NewAccountDisabledError() *AppError {
+	return New(ErrorTypeAuthentication, CodeAccountDisabled, "Your account has been deactivated").
+		WithDetails("Please contact support to reactivate your account")
+}
+
+// NewAccountNotVerifiedError creates an error for unverified accounts
+func NewAccountNotVerifiedError() *AppError {
+	return New(ErrorTypeAuthentication, CodeAccountNotVerified, "Please verify your email address before logging in").
+		WithDetails("Check your email for a verification link or request a new one")
+}
+
+// NewTooManyAttemptsError creates an error for rate limiting
+func NewTooManyAttemptsError() *AppError {
+	return New(ErrorTypeRateLimit, CodeTooManyAttempts, "Too many login attempts. Please try again later").
+		WithDetails("Wait a few minutes before attempting to log in again")
+}
+
+// NewPasswordTooShortError creates an error for password length
+func NewPasswordTooShortError(minLength int) *AppError {
+	return New(ErrorTypeValidation, CodePasswordTooShort, fmt.Sprintf("Password must be at least %d characters long", minLength)).
+		WithDetails("Choose a longer password for better security")
+}
+
+// NewPasswordTooWeakError creates an error for weak passwords
+func NewPasswordTooWeakError(requirements []string) *AppError {
+	msg := "Password does not meet security requirements"
+	details := "Password must contain: " + strings.Join(requirements, ", ")
+	return New(ErrorTypeValidation, CodePasswordTooWeak, msg).
+		WithDetails(details).
+		WithContext("missing_requirements", requirements)
+}
+
+// NewInvalidLoginError creates a generic invalid login error (to prevent user enumeration)
+func NewInvalidLoginError() *AppError {
+	return New(ErrorTypeAuthentication, CodeInvalidCredentials, "Invalid email address or password").
+		WithDetails("Please check your credentials and try again")
 }
 
 // NewHTTPError creates an HTTP error

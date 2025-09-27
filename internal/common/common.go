@@ -212,9 +212,10 @@ type APIResponse struct {
 
 // APIError represents API error details
 type APIError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Details string `json:"details,omitempty"`
+	Code    string                 `json:"code"`
+	Message string                 `json:"message"`
+	Details string                 `json:"details,omitempty"`
+	Context map[string]interface{} `json:"context,omitempty"`
 }
 
 // NewSuccessResponse creates a successful API response
@@ -234,6 +235,20 @@ func NewErrorResponse(code, message, details string) *APIResponse {
 			Code:    code,
 			Message: message,
 			Details: details,
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+// NewEnhancedErrorResponse creates an enhanced error API response with context
+func NewEnhancedErrorResponse(code, message, details string, context map[string]interface{}) *APIResponse {
+	return &APIResponse{
+		Success: false,
+		Error: &APIError{
+			Code:    code,
+			Message: message,
+			Details: details,
+			Context: context,
 		},
 		Timestamp: time.Now(),
 	}
