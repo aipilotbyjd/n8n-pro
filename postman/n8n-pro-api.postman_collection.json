@@ -11,28 +11,35 @@
 			"name": "Authentication",
 			"item": [
 				{
-					"name": "Login",
+					"name": "✅ Valid Login",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
+									"pm.test('✅ Valid Login - Status code is 200', () => {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('✅ Valid Login - Response structure', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.true;",
+									"    pm.expect(response.data.access_token).to.exist;",
+									"    pm.expect(response.data.refresh_token).to.exist;",
+									"    pm.expect(response.data.token_type).to.eql('Bearer');",
+									"    pm.expect(response.data.user).to.exist;",
+									"});",
+									"",
+									"// Save tokens for subsequent requests",
 									"if (pm.response.code === 200) {",
 									"    const response = pm.response.json();",
 									"    if (response.success && response.data.access_token) {",
 									"        pm.environment.set('access_token', response.data.access_token);",
 									"        pm.environment.set('refresh_token', response.data.refresh_token);",
 									"        pm.environment.set('user_id', response.data.user.id);",
-									"        pm.environment.set('team_id', response.data.user.team_id);",
 									"        console.log('✅ Login successful, tokens saved');",
 									"    }",
-									"}",
-									"pm.test('Status code is 200', () => pm.response.to.have.status(200));",
-									"pm.test('Response has access token', () => {",
-									"    const jsonData = pm.response.json();",
-									"    pm.expect(jsonData.success).to.be.true;",
-									"    pm.expect(jsonData.data.access_token).to.exist;",
-									"});"
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -53,19 +60,398 @@
 					}
 				},
 				{
-					"name": "Register",
+					"name": "❌ Login - Invalid Email Format",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Invalid Email - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Invalid Email - Error structure', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error).to.exist;",
+									"    pm.expect(response.error.code).to.eql('invalid_email');",
+									"    pm.expect(response.error.message).to.eql('Please enter a valid email address');",
+									"    pm.expect(response.error.details).to.contain('Email should be in format');",
+									"    console.log('✅ Invalid email error handled correctly:', response.error.message);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "POST",
 						"header": [{"key": "Content-Type", "value": "application/json"}],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"test@example.com\",\n  \"password\": \"testpassword123\",\n  \"team_name\": \"Test Team\"\n}"
+							"raw": "{\n  \"email\": \"invalid-email\",\n  \"password\": \"testpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "❌ Login - Missing Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Missing Password - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Missing Password - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.message).to.eql('Password is required');",
+									"    pm.expect(response.error.details).to.eql('Please enter your password');",
+									"    console.log('✅ Missing password error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "❌ Login - Invalid Credentials",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Invalid Credentials - Status code is 401', () => {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"",
+									"pm.test('❌ Invalid Credentials - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('invalid_credentials');",
+									"    pm.expect(response.error.message).to.eql('Invalid email address or password');",
+									"    pm.expect(response.error.details).to.eql('Please check your credentials and try again');",
+									"    console.log('✅ Invalid credentials error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"nonexistent@example.com\",\n  \"password\": \"wrongpassword\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "❌ Login - Invalid JSON Body",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Invalid JSON - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Invalid JSON - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.message).to.eql('Invalid request body. Please check your data format.');",
+									"    pm.expect(response.error.details).to.contain('Request must be valid JSON');",
+									"    console.log('✅ Invalid JSON error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{invalid json}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "✅ Valid Registration",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('✅ Valid Registration - Status code is 201', () => {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test('✅ Valid Registration - Response structure', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.true;",
+									"    pm.expect(response.data.user_id).to.exist;",
+									"    pm.expect(response.data.email).to.exist;",
+									"    pm.expect(response.data.name).to.exist;",
+									"    pm.expect(response.data.message).to.eql('User registered successfully');",
+									"    console.log('✅ Registration successful:', response.data.email);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New User\",\n  \"email\": \"newuser{{$randomInt}}@example.com\",\n  \"password\": \"SecurePass123\",\n  \"team_name\": \"New Team {{$randomInt}}\"\n}"
 						},
 						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
 					}
 				},
 				{
-					"name": "Refresh Token",
+					"name": "❌ Registration - Email Already Exists",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Email Exists - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Email Exists - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('email_exists');",
+									"    pm.expect(response.error.message).to.eql('An account with this email address already exists');",
+									"    pm.expect(response.error.details).to.contain('Please use a different email address');",
+									"    pm.expect(response.error.context.email).to.exist;",
+									"    console.log('✅ Email exists error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"{{user_email}}\",\n  \"password\": \"testpassword123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "❌ Registration - Password Too Short",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Password Too Short - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Password Too Short - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('password_too_short');",
+									"    pm.expect(response.error.message).to.contain('Password must be at least');",
+									"    pm.expect(response.error.details).to.contain('Choose a longer password');",
+									"    console.log('✅ Password too short error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"short{{$randomInt}}@example.com\",\n  \"password\": \"123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "❌ Registration - Weak Password (Missing Requirements)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Weak Password - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Weak Password - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('password_too_weak');",
+									"    pm.expect(response.error.message).to.eql('Password does not meet security requirements');",
+									"    pm.expect(response.error.details).to.contain('Password must contain:');",
+									"    pm.expect(response.error.context.missing_requirements).to.exist;",
+									"    pm.expect(response.error.context.missing_requirements).to.be.an('array');",
+									"    console.log('✅ Weak password error with requirements:', response.error.context.missing_requirements);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"weak{{$randomInt}}@example.com\",\n  \"password\": \"lowercase\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "❌ Registration - Common Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Common Password - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Common Password - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('password_common');",
+									"    pm.expect(response.error.message).to.eql('This password is too common and not secure');",
+									"    pm.expect(response.error.details).to.eql('Please choose a more unique password');",
+									"    console.log('✅ Common password error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"common{{$randomInt}}@example.com\",\n  \"password\": \"password123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "❌ Registration - Invalid Email Format",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Invalid Email Format - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Invalid Email Format - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.code).to.eql('invalid_email');",
+									"    pm.expect(response.error.message).to.eql('Please enter a valid email address');",
+									"    pm.expect(response.error.details).to.contain('Email should be in format');",
+									"    console.log('✅ Invalid email format error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"invalid.email\",\n  \"password\": \"ValidPass123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "❌ Registration - Missing Name",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('❌ Missing Name - Status code is 400', () => {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test('❌ Missing Name - Error message', () => {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"    pm.expect(response.error.message).to.eql('Full name is required');",
+									"    console.log('✅ Missing name error handled correctly');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"\",\n  \"email\": \"missing{{$randomInt}}@example.com\",\n  \"password\": \"ValidPass123\",\n  \"team_name\": \"Test Team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"]}
+					}
+				},
+				{
+					"name": "🔄 Refresh Token",
 					"event": [
 						{
 							"listen": "test",
