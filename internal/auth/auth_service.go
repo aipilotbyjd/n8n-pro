@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -182,7 +183,6 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 
 	// Create user
 	user := &models.User{
-		ID:             uuid.New().String(),
 		Email:          strings.ToLower(req.Email),
 		FirstName:      req.FirstName,
 		LastName:       req.LastName,
@@ -191,8 +191,6 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		Status:         "pending",
 		Role:           "member",
 		EmailVerified:  false,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
 		PasswordChangedAt: time.Now(),
 		Profile: models.JSONB{
 			"accepted_terms": req.AcceptTerms,
@@ -255,7 +253,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 	}
 
 	// Create session if device info provided
-	var session *models.Session
+	var session *models.AuthSession
 	if req.DeviceInfo != nil {
 		session, err = s.sessionManager.CreateSession(ctx, user.ID, req.DeviceInfo)
 		if err != nil {
@@ -404,7 +402,7 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 	s.resetFailedLoginAttempts(ctx, &user)
 
 	// Create session
-	var session *models.Session
+	var session *models.AuthSession
 	if req.DeviceInfo != nil {
 		// Set extended session duration for "remember me"
 		if req.RememberMe {
@@ -905,7 +903,7 @@ func (s *AuthService) logLoginAttempt(ctx context.Context, email string, ipAddre
 	}()
 }
 
-func getSessionID(session *models.Session) string {
+func getSessionID(session *models.AuthSession) string {
 	if session != nil {
 		return session.ID
 	}

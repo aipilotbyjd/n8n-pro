@@ -64,7 +64,7 @@ func NewSessionManager(db *gorm.DB, config *SessionConfig) *SessionManager {
 }
 
 // CreateSession creates a new session for a user
-func (sm *SessionManager) CreateSession(ctx context.Context, userID string, req *SessionCreateRequest) (*models.Session, error) {
+func (sm *SessionManager) CreateSession(ctx context.Context, userID string, req *SessionCreateRequest) (*models.AuthSession, error) {
 	// Validate user exists and is active
 	var user models.User
 	if err := sm.db.WithContext(ctx).Where("id = ? AND status = 'active' AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
@@ -95,7 +95,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, userID string, req 
 	}
 
 	// Create session
-	session := &models.Session{
+	session := &models.AuthSession{
 		UserID:           userID,
 		RefreshTokenHash: refreshTokenHash,
 		AccessTokenHash:  accessTokenHash,
@@ -157,8 +157,8 @@ type SessionCreateRequest struct {
 }
 
 // ValidateSession validates an existing session
-func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string, tokenHash string) (*models.Session, error) {
-	var session models.Session
+func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string, tokenHash string) (*models.AuthSession, error) {
+	var session models.AuthSession
 	
 	err := sm.db.WithContext(ctx).
 		Where("id = ? AND is_active = true AND expires_at > ?", sessionID, time.Now()).
@@ -204,7 +204,7 @@ func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string,
 }
 
 // RefreshSession refreshes session tokens
-func (sm *SessionManager) RefreshSession(ctx context.Context, sessionID string, oldRefreshToken string) (*models.Session, error) {
+func (sm *SessionManager) RefreshSession(ctx context.Context, sessionID string, oldRefreshToken string) (*models.AuthSession, error) {
 	// Hash the old token to compare
 	oldTokenHash := sm.hashToken(oldRefreshToken)
 	
@@ -256,7 +256,7 @@ func (sm *SessionManager) RevokeSession(ctx context.Context, sessionID string, r
 	}
 
 	result := sm.db.WithContext(ctx).
-		Model(&models.Session{}).
+		Model(&models.AuthSession{}).
 		Where("id = ?", sessionID).
 		Updates(updates)
 
@@ -274,7 +274,7 @@ func (sm *SessionManager) RevokeSession(ctx context.Context, sessionID string, r
 // RevokeAllSessions revokes all sessions for a user
 func (sm *SessionManager) RevokeAllSessions(ctx context.Context, userID string, exceptSessionID ...string) error {
 	query := sm.db.WithContext(ctx).
-		Model(&models.Session{}).
+		Model(&models.AuthSession{}).
 		Where("user_id = ? AND is_active = true", userID)
 
 	if len(exceptSessionID) > 0 && exceptSessionID[0] != "" {
@@ -298,8 +298,8 @@ func (sm *SessionManager) RevokeAllSessions(ctx context.Context, userID string, 
 }
 
 // GetActiveSessions retrieves all active sessions for a user
-func (sm *SessionManager) GetActiveSessions(ctx context.Context, userID string) ([]*models.Session, error) {
-	var sessions []*models.Session
+func (sm *SessionManager) GetActiveSessions(ctx context.Context, userID string) ([]*models.AuthSession, error) {
+	var sessions []*models.AuthSession
 	
 	err := sm.db.WithContext(ctx).
 		Where("user_id = ? AND is_active = true AND expires_at > ?", userID, time.Now()).
@@ -363,7 +363,7 @@ func (sm *SessionManager) enforceSessionLimits(ctx context.Context, userID strin
 
 	var count int64
 	err := sm.db.WithContext(ctx).
-		Model(&models.Session{}).
+		Model(&models.AuthSession{}).
 		Where("user_id = ? AND is_active = true AND expires_at > ?", userID, time.Now()).
 		Count(&count).Error
 

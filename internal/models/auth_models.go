@@ -18,7 +18,7 @@ type PasswordHistory struct {
 }
 
 // Session represents an active user session with enhanced security tracking
-type Session struct {
+type AuthSession struct {
 	ID               string    `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	UserID           string    `gorm:"type:uuid;not null;index" json:"user_id"`
 	RefreshTokenHash string    `gorm:"type:varchar(255);not null;uniqueIndex" json:"-"`
@@ -222,8 +222,8 @@ func (EnhancedUser) TableName() string {
 	return "users"
 }
 
-// BeforeCreate hook for Session
-func (s *Session) BeforeCreate(tx *gorm.DB) error {
+// BeforeCreate hook for AuthSession
+func (s *AuthSession) BeforeCreate(tx *gorm.DB) error {
 	if s.ID == "" {
 		s.ID = generateUUID()
 	}

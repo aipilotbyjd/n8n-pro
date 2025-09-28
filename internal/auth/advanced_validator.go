@@ -87,12 +87,13 @@ func (av *AdvancedValidator) ValidateRegistration(req *RegisterRequest) error {
 	}
 
 	// Validate organization name if provided
-	if req.OrganizationName != "" {
-		req.OrganizationName = av.inputSanitizer.SanitizeName(req.OrganizationName)
-		if av.profanityChecker.ContainsProfanity(req.OrganizationName) {
-			return errors.NewValidationError("Organization name contains inappropriate content")
-		}
-	}
+	// TODO: Add OrganizationName field to RegisterRequest when needed
+	// if req.OrganizationName != "" {
+	// 	req.OrganizationName = av.inputSanitizer.SanitizeName(req.OrganizationName)
+	// 	if av.profanityChecker.ContainsProfanity(req.OrganizationName) {
+	// 		return errors.NewValidationError("Organization name contains inappropriate content")
+	// 	}
+	// }
 
 	return nil
 }

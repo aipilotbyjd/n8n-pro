@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"n8n-pro/internal/auth"
-	"n8n-pro/internal/api/middleware"
+	// "n8n-pro/internal/api/middleware" // Will be used when protected routes are added
 	"n8n-pro/internal/api/routes"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
@@ -268,8 +268,8 @@ func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, jwtSvc
 		w.Write([]byte(response))
 	})
 
-	// Setup simple auth routes (bypass complex auth package)
-	routes.SetupSimpleAuthRoutes(r, db, jwtSvc, log)
+	// Setup routes
+	routes.SetupRoutes(r, db, authSvc, jwtSvc, teamSvc, nodeRegistry, log)
 
 	// TODO: Initialize handlers once services are ready
 	// Initialize handlers
@@ -285,68 +285,24 @@ func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, jwtSvc
 	// settingsHandler := handlers.NewSettingsHandler(log)
 	// templatesHandler := handlers.NewTemplatesHandler(log)
 
-	// Authentication middleware
-	authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
-		JWTSecret:      cfg.Auth.JWTSecret,
-		RequiredScopes: []string{},
-		SkipPaths: []string{
-			"/health",
-			"/version",
-			"/api/v1/auth/login",
-			"/api/v1/auth/register",
-			"/api/v1/auth/refresh",
-			"/api/v1/auth/forgot-password",
-			"/api/v1/auth/reset-password",
-			"/api/v1/auth/verify-email",
-		},
-	}, jwtSvc, log)
+	// Authentication middleware - will be used when protected routes are added
+	// authMiddleware := middleware.AuthMiddleware(&middleware.AuthConfig{
+	// 	JWTSecret:      cfg.Auth.JWTSecret,
+	// 	RequiredScopes: []string{},
+	// 	SkipPaths: []string{
+	// 		"/health",
+	// 		"/version",
+	// 		"/api/v1/auth/login",
+	// 		"/api/v1/auth/register",
+	// 		"/api/v1/auth/refresh",
+	// 		"/api/v1/auth/forgot-password",
+	// 		"/api/v1/auth/reset-password",
+	// 		"/api/v1/auth/verify-email",
+	// 	},
+	// }, jwtSvc, log)
 
-	// API routes
-	r.Route("/api/v1", func(r chi.Router) {
-		// Note: Auth endpoints are handled by SetupSimpleAuthRoutes above
-		// 		// Auth endpoints (no auth required)
-		// 		r.Route("/auth", func(r chi.Router) {
-		// 			r.Post("/login", authHandler.Login)
-		// 			r.Post("/register", authHandler.Register)
-		// 			r.Post("/refresh", authHandler.RefreshToken)
-		// 			r.Post("/logout", authHandler.Logout)
-		// 			r.Post("/forgot-password", authHandler.ForgotPassword)
-		// 			r.Post("/reset-password", authHandler.ResetPassword)
-		// 			r.Post("/verify-email", authHandler.VerifyEmail)
-		// 		})
-
-		// TODO: Re-enable protected routes once handlers are available
-		// Protected routes
-		r.Group(func(r chi.Router) {
-			r.Use(authMiddleware)
-
-			// Basic health check route for authenticated users
-			r.Get("/auth-test", func(w http.ResponseWriter, r *http.Request) {
-				user := middleware.GetUserFromContext(r.Context())
-				if user != nil {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusOK)
-					response := fmt.Sprintf(`{"status":"authenticated","user_id":"%s","email":"%s"}`, user.ID, user.Email)
-					w.Write([]byte(response))
-				} else {
-					w.WriteHeader(http.StatusUnauthorized)
-					w.Write([]byte(`{"error":"not authenticated"}`))
-				}
-			})
-
-			// TODO: Add back all the route definitions once handlers are implemented:
-			// - Workflows: /workflows/*
-			// - Executions: /executions/*
-			// - Users: /users/*
-			// - Metrics: /metrics/*
-			// - Credentials: /credentials/*
-			// - Teams: /teams/*
-			// - Webhooks: /webhooks/*
-			// - Nodes: /nodes/*
-			// - Templates: /templates/*
-			// - Settings: /settings/*
-		})
-	})
+	// API routes are handled by routes.SetupRoutes above
+	// TODO: Re-enable additional protected routes when handlers are available
 
 	// TODO: Re-enable metrics endpoint
 	// Prometheus metrics endpoint (admin only)

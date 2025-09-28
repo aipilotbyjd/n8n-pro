@@ -1,13 +1,12 @@
 package auth
 
 import (
-	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"n8n-pro/internal/models"
-	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 
 	"gorm.io/gorm"
