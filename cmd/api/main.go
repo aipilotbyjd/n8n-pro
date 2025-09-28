@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"n8n-pro/internal/auth"
-	"n8n-pro/internal/api/handlers"
-	// "n8n-pro/internal/api/middleware" // Will be used when protected routes are added
-	"n8n-pro/internal/api/routes"
+	"n8n-pro/internal/application/auth"
+	"n8n-pro/internal/presentation/http/handlers"
+	// "n8n-pro/internal/presentation/http/middleware" // Will be used when protected routes are added
+	"n8n-pro/internal/presentation/http/routes"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/database"
+	"n8n-pro/internal/infrastructure/database"
 	"n8n-pro/internal/nodes"
 	"n8n-pro/internal/teams"
 	"n8n-pro/pkg/logger"

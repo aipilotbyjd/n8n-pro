@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"n8n-pro/internal/auth"
-	"n8n-pro/internal/workflows"
+	"n8n-pro/internal/application/auth"
+	"n8n-pro/internal/domain/workflow"
 	"n8n-pro/pkg/logger"
 
 	"github.com/stretchr/testify/mock"

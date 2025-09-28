@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"n8n-pro/internal/testutils"
-	"n8n-pro/internal/workflows"
+	"n8n-pro/internal/domain/workflow"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

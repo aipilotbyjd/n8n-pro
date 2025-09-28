@@ -1,0 +1,443 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, staging ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly security scan
+
+env:
+  GO_VERSION: '1.24.0'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.1
+
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout=10m --config=.golangci.yml ./...
+
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  test:
+    name: Test (${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        go-version: ['1.22', '1.23', '1.24']
+        os: [ubuntu-latest, macos-latest]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: n8n_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          go install gotest.tools/gotestsum@latest
+
+      - name: Run migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: testuser
+          DB_PASSWORD: testpass
+          DB_NAME: n8n_test
+        run: |
+          go build -o migrate ./cmd/migrate
+          ./migrate up
+
+      - name: Run unit tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: testuser
+          DB_PASSWORD: testpass
+          DB_NAME: n8n_test
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: |
+          gotestsum --junitfile test-results-${{ matrix.os }}-${{ matrix.go-version }}.xml \
+            --format pkgname -- -race -coverprofile=coverage.out -covermode=atomic \
+            -timeout=20m ./...
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.go-version }}
+          path: test-results-*.xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.go-version == env.GO_VERSION && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-${{ matrix.os }}-${{ matrix.go-version }}
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: n8n_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      kafka:
+        image: confluentinc/cp-kafka:7.5.0
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        ports:
+          - 9092:9092
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run integration tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: testuser
+          DB_PASSWORD: testpass
+          DB_NAME: n8n_test
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          KAFKA_BROKER: localhost:9092
+        run: |
+          go test -tags=integration -timeout=30m ./test/integration/...
+
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run benchmarks
+        run: |
+          go test -bench=. -benchmem -timeout=30m ./test/benchmarks/... | tee benchmark.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark.txt
+
+      - name: Store benchmark result
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'go'
+          output-file-path: benchmark.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        with:
+          args: '-fmt sarif -out gosec-results.sarif ./...'
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec-results.sarif
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Run Nancy vulnerability check
+        run: |
+          go list -json -m all | docker run --rm -i sonatypecorp/nancy:latest sleuth
+
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: [test, integration-test]
+
+    strategy:
+      matrix:
+        service: [api, worker, scheduler, webhook, admin, migrate]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build ${{ matrix.service }}
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${{ github.sha }} -X main.buildTime=$(date -u '+%Y-%m-%d_%H:%M:%S')" \
+            -o build/${{ matrix.service }}-linux-amd64 \
+            ./cmd/${{ matrix.service }}
+
+      - name: Build ${{ matrix.service }} (ARM64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="-w -s -X main.version=${{ github.sha }} -X main.buildTime=$(date -u '+%Y-%m-%d_%H:%M:%S')" \
+            -o build/${{ matrix.service }}-linux-arm64 \
+            ./cmd/${{ matrix.service }}
+
+      - name: Build ${{ matrix.service }} (Darwin)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${{ github.sha }} -X main.buildTime=$(date -u '+%Y-%m-%d_%H:%M:%S')" \
+            -o build/${{ matrix.service }}-darwin-amd64 \
+            ./cmd/${{ matrix.service }}
+
+      - name: Build ${{ matrix.service }} (Darwin ARM64)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags="-w -s -X main.version=${{ github.sha }} -X main.buildTime=$(date -u '+%Y-%m-%d_%H:%M:%S')" \
+            -o build/${{ matrix.service }}-darwin-arm64 \
+            ./cmd/${{ matrix.service }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-binaries
+          path: build/${{ matrix.service }}-*
+
+  docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service: [api, worker, scheduler, webhook]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.service }}-binaries
+          path: build/
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployments/docker/Dockerfile.${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.created }}
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [docker, security]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create changelog
+        id: changelog
+        run: |
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            ## What's Changed
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ## Docker Images
+            - `ghcr.io/${{ github.repository }}-api:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}-worker:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}-scheduler:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}-webhook:${{ github.ref_name }}`
+          files: |
+            artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.ref == 'refs/heads/staging'
+    environment: staging
+
+    steps:
+      - name: Deploy to Kubernetes
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your deployment commands here
+          # kubectl apply -f deployments/k8s/staging/

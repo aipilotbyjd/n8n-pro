@@ -1,0 +1,290 @@
+# =============================================================================
+# n8n Pro - Optimized Multi-Stage Dockerfile
+# =============================================================================
+
+# Build arguments
+ARG GO_VERSION=1.24.0
+ARG ALPINE_VERSION=3.19
+ARG SERVICE=api
+
+# =============================================================================
+# Stage 1: Base dependencies
+# =============================================================================
+FROM golang:${GO_VERSION}-alpine AS base
+
+# Install build dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    git \
+    gcc \
+    g++ \
+    make \
+    libc-dev \
+    postgresql-client \
+    curl \
+    upx
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download && \
+    go mod verify
+
+# =============================================================================
+# Stage 2: Build cache
+# =============================================================================
+FROM base AS build-cache
+
+# Pre-build standard library
+RUN go build std
+
+# Install build tools
+RUN go install github.com/swaggo/swag/cmd/swag@latest && \
+    go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+# =============================================================================
+# Stage 3: Source code
+# =============================================================================
+FROM build-cache AS source
+
+# Copy source code
+COPY . .
+
+# Generate swagger docs (if needed)
+RUN if [ -f "cmd/api/main.go" ]; then \
+        swag init -g cmd/api/main.go -o docs/api || true; \
+    fi
+
+# =============================================================================
+# Stage 4: Builder
+# =============================================================================
+FROM source AS builder
+
+# Build arguments
+ARG SERVICE
+ARG VERSION=dev
+ARG BUILD_TIME
+ARG GIT_COMMIT
+
+# Build flags
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Build the service
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    BUILD_TIME=${BUILD_TIME:-$(date -u '+%Y-%m-%d_%H:%M:%S')} && \
+    GIT_COMMIT=${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")} && \
+    go build \
+        -ldflags="-w -s \
+            -X main.version=${VERSION} \
+            -X main.buildTime=${BUILD_TIME} \
+            -X main.gitCommit=${GIT_COMMIT} \
+            -extldflags '-static'" \
+        -a \
+        -installsuffix cgo \
+        -o /tmp/${SERVICE} \
+        ./cmd/${SERVICE} && \
+    # Compress binary with UPX
+    upx --best --lzma -q /tmp/${SERVICE} || true && \
+    # Verify binary
+    /tmp/${SERVICE} --version || true
+
+# =============================================================================
+# Stage 5: Security scanner
+# =============================================================================
+FROM aquasec/trivy:latest AS security
+
+WORKDIR /app
+COPY --from=builder /tmp/* /app/
+RUN trivy fs --no-progress --security-checks vuln --exit-code 0 /app
+
+# =============================================================================
+# Stage 6: Final image - Alpine
+# =============================================================================
+FROM alpine:${ALPINE_VERSION} AS final-alpine
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    postgresql-client && \
+    # Create non-root user
+    addgroup -g 1001 -S n8n && \
+    adduser -u 1001 -S n8n -G n8n && \
+    # Create necessary directories
+    mkdir -p /app/storage/uploads /app/storage/temp /app/logs /app/configs && \
+    chown -R n8n:n8n /app
+
+# Copy binary and configs
+ARG SERVICE
+COPY --from=builder --chown=n8n:n8n /tmp/${SERVICE} /app/${SERVICE}
+COPY --chown=n8n:n8n ./configs /app/configs
+COPY --chown=n8n:n8n ./migrations /app/migrations
+
+# Set working directory
+WORKDIR /app
+
+# Switch to non-root user
+USER n8n
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+
+# Environment variables
+ENV SERVICE=${SERVICE}
+ENV PORT=8080
+ENV ENV=production
+ENV GIN_MODE=release
+ENV LOG_LEVEL=info
+
+# Expose port
+EXPOSE ${PORT}
+
+# Run the service
+ENTRYPOINT ["/app/${SERVICE}"]
+
+# =============================================================================
+# Stage 7: Final image - Distroless (Alternative, smaller)
+# =============================================================================
+FROM gcr.io/distroless/static-debian12:nonroot AS final-distroless
+
+# Copy binary and configs
+ARG SERVICE
+COPY --from=builder --chown=nonroot:nonroot /tmp/${SERVICE} /app/${SERVICE}
+COPY --chown=nonroot:nonroot ./configs /app/configs
+COPY --chown=nonroot:nonroot ./migrations /app/migrations
+
+# Set working directory
+WORKDIR /app
+
+# Environment variables
+ENV SERVICE=${SERVICE}
+ENV PORT=8080
+ENV ENV=production
+
+# Expose port
+EXPOSE ${PORT}
+
+# Run the service
+ENTRYPOINT ["/app/${SERVICE}"]
+
+# =============================================================================
+# Stage 8: Debug image (for development)
+# =============================================================================
+FROM golang:${GO_VERSION}-alpine AS debug
+
+# Install debugging tools
+RUN apk add --no-cache \
+    ca-certificates \
+    git \
+    gcc \
+    g++ \
+    make \
+    libc-dev \
+    postgresql-client \
+    redis \
+    curl \
+    bash \
+    vim \
+    nano \
+    htop \
+    strace \
+    tcpdump \
+    net-tools \
+    bind-tools \
+    jq \
+    delve
+
+# Install air for hot reload
+RUN go install github.com/cosmtrek/air@latest
+
+# Create non-root user
+RUN addgroup -g 1001 -S n8n && \
+    adduser -u 1001 -S n8n -G n8n && \
+    mkdir -p /app && \
+    chown -R n8n:n8n /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy source code
+COPY --chown=n8n:n8n . .
+
+# Download dependencies
+RUN go mod download
+
+# Switch to non-root user
+USER n8n
+
+# Expose ports (API + Delve debugger)
+EXPOSE 8080 2345
+
+# Run with air for hot reload
+CMD ["air", "-c", ".air.toml"]
+
+# =============================================================================
+# Stage 9: Test runner
+# =============================================================================
+FROM source AS test
+
+# Install test dependencies
+RUN go install gotest.tools/gotestsum@latest && \
+    go install github.com/axw/gocov/gocov@latest && \
+    go install github.com/AlekSi/gocov-xml@latest
+
+# Run tests with coverage
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    gotestsum --junitfile test-results.xml -- \
+        -race \
+        -coverprofile=coverage.out \
+        -covermode=atomic \
+        ./... && \
+    gocov convert coverage.out | gocov-xml > coverage.xml
+
+# =============================================================================
+# Stage 10: Documentation generator
+# =============================================================================
+FROM source AS docs
+
+# Install documentation tools
+RUN go install github.com/swaggo/swag/cmd/swag@latest && \
+    go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
+
+# Generate API documentation
+RUN swag init -g cmd/api/main.go -o docs/api --parseDependency --parseInternal
+
+# =============================================================================
+# Build examples:
+# =============================================================================
+# Build for API service:
+#   docker build --build-arg SERVICE=api --target final-alpine -t n8n-pro-api .
+#
+# Build for Worker service:
+#   docker build --build-arg SERVICE=worker --target final-alpine -t n8n-pro-worker .
+#
+# Build for debug/development:
+#   docker build --target debug -t n8n-pro-debug .
+#
+# Build with distroless (smallest):
+#   docker build --build-arg SERVICE=api --target final-distroless -t n8n-pro-api-distroless .
+#
+# Build and run tests:
+#   docker build --target test -t n8n-pro-test .
+#   docker run --rm n8n-pro-test cat test-results.xml
+#
+# Multi-platform build:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     --build-arg SERVICE=api \
+#     --target final-alpine \
+#     -t n8n-pro-api:latest .
+#
+# =============================================================================

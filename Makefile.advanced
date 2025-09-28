@@ -1,0 +1,654 @@
+# =============================================================================
+# n8n Pro Advanced Makefile
+# =============================================================================
+
+# Variables
+PROJECT_NAME := n8n-pro
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GO_VERSION := $(shell go version | awk '{print $$3}')
+GOPATH := $(shell go env GOPATH)
+
+# Build variables
+LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.gitCommit=$(GIT_COMMIT) -w -s"
+LDFLAGS_DEBUG := -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.gitCommit=$(GIT_COMMIT)"
+BUILD_DIR := ./build
+DIST_DIR := ./dist
+CGO_ENABLED := 0
+
+# Go commands
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GOCLEAN := $(GOCMD) clean
+GOTEST := $(GOCMD) test
+GOGET := $(GOCMD) get
+GOMOD := $(GOCMD) mod
+GOFMT := gofmt
+GOVET := $(GOCMD) vet
+GOLINT := golangci-lint
+
+# Docker variables
+DOCKER_REGISTRY := ghcr.io
+DOCKER_ORG := $(shell git config --get remote.origin.url | sed -E 's|.*github.com[:/]([^/]+)/.*|\1|')
+DOCKER_TAG := $(VERSION)
+DOCKER_PLATFORM := linux/amd64,linux/arm64
+
+# Services
+SERVICES := api worker scheduler webhook admin migrate
+ALL_SERVICES := $(addprefix $(BUILD_DIR)/,$(SERVICES))
+
+# Database
+DB_HOST ?= localhost
+DB_PORT ?= 5432
+DB_NAME ?= n8n_pro
+DB_USER ?= postgres
+DB_PASSWORD ?= password
+DB_SSL_MODE ?= disable
+DB_URL := postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(DB_SSL_MODE)
+
+# Test variables
+TEST_TIMEOUT := 30m
+BENCH_TIMEOUT := 60m
+COVERAGE_DIR := coverage
+COVERAGE_MODE := atomic
+
+# Colors for output
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+BLUE := \033[0;34m
+MAGENTA := \033[0;35m
+CYAN := \033[0;36m
+WHITE := \033[1;37m
+NC := \033[0m # No Color
+
+# Default target
+.DEFAULT_GOAL := help
+
+# =============================================================================
+# Build Targets
+# =============================================================================
+
+.PHONY: all
+all: clean deps lint test build ## Clean, install dependencies, lint, test, and build everything
+
+.PHONY: build
+build: build-all ## Build all services
+
+.PHONY: build-all
+build-all: $(ALL_SERVICES) ## Build all services
+	@echo "$(GREEN)✓ All services built successfully$(NC)"
+
+$(BUILD_DIR)/%: cmd/%/main.go
+	@mkdir -p $(BUILD_DIR)
+	@echo "$(BLUE)Building $*...$(NC)"
+	@CGO_ENABLED=$(CGO_ENABLED) $(GOBUILD) $(LDFLAGS) -o $@ ./cmd/$*
+	@echo "$(GREEN)✓ $* built$(NC)"
+
+.PHONY: build-debug
+build-debug: ## Build all services with debug symbols
+	@mkdir -p $(BUILD_DIR)
+	@for service in $(SERVICES); do \
+		echo "$(BLUE)Building $$service (debug)...$(NC)"; \
+		CGO_ENABLED=1 $(GOBUILD) $(LDFLAGS_DEBUG) -race -o $(BUILD_DIR)/$$service-debug ./cmd/$$service; \
+		echo "$(GREEN)✓ $$service (debug) built$(NC)"; \
+	done
+
+.PHONY: build-linux
+build-linux: ## Build for Linux (amd64 and arm64)
+	@mkdir -p $(DIST_DIR)/linux
+	@for service in $(SERVICES); do \
+		echo "$(BLUE)Building $$service for Linux...$(NC)"; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/linux/$$service-linux-amd64 ./cmd/$$service; \
+		GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/linux/$$service-linux-arm64 ./cmd/$$service; \
+		echo "$(GREEN)✓ $$service for Linux built$(NC)"; \
+	done
+
+.PHONY: build-darwin
+build-darwin: ## Build for macOS (amd64 and arm64)
+	@mkdir -p $(DIST_DIR)/darwin
+	@for service in $(SERVICES); do \
+		echo "$(BLUE)Building $$service for macOS...$(NC)"; \
+		GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/darwin/$$service-darwin-amd64 ./cmd/$$service; \
+		GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/darwin/$$service-darwin-arm64 ./cmd/$$service; \
+		echo "$(GREEN)✓ $$service for macOS built$(NC)"; \
+	done
+
+.PHONY: build-windows
+build-windows: ## Build for Windows
+	@mkdir -p $(DIST_DIR)/windows
+	@for service in $(SERVICES); do \
+		echo "$(BLUE)Building $$service for Windows...$(NC)"; \
+		GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/windows/$$service-windows-amd64.exe ./cmd/$$service; \
+		echo "$(GREEN)✓ $$service for Windows built$(NC)"; \
+	done
+
+.PHONY: build-cross
+build-cross: build-linux build-darwin build-windows ## Build for all platforms
+
+# =============================================================================
+# Run Targets
+# =============================================================================
+
+.PHONY: run
+run: run-api ## Run API server (default)
+
+.PHONY: run-api
+run-api: $(BUILD_DIR)/api ## Run API server
+	@echo "$(CYAN)Starting API server...$(NC)"
+	@$(BUILD_DIR)/api
+
+.PHONY: run-worker
+run-worker: $(BUILD_DIR)/worker ## Run worker
+	@echo "$(CYAN)Starting worker...$(NC)"
+	@$(BUILD_DIR)/worker
+
+.PHONY: run-scheduler
+run-scheduler: $(BUILD_DIR)/scheduler ## Run scheduler
+	@echo "$(CYAN)Starting scheduler...$(NC)"
+	@$(BUILD_DIR)/scheduler
+
+.PHONY: run-webhook
+run-webhook: $(BUILD_DIR)/webhook ## Run webhook server
+	@echo "$(CYAN)Starting webhook server...$(NC)"
+	@$(BUILD_DIR)/webhook
+
+.PHONY: dev
+dev: ## Run with hot reload (requires air)
+	@if ! command -v air > /dev/null; then \
+		echo "$(YELLOW)Installing air...$(NC)"; \
+		go install github.com/cosmtrek/air@latest; \
+	fi
+	@echo "$(CYAN)Starting development server with hot reload...$(NC)"
+	@air -c .air.toml
+
+.PHONY: dev-all
+dev-all: ## Run all services in development mode
+	@echo "$(CYAN)Starting all services in development mode...$(NC)"
+	@docker-compose -f docker-compose.dev.yml up
+
+# =============================================================================
+# Test Targets
+# =============================================================================
+
+.PHONY: test
+test: ## Run unit tests
+	@echo "$(BLUE)Running tests...$(NC)"
+	@$(GOTEST) -race -coverprofile=coverage.out -covermode=$(COVERAGE_MODE) -timeout=$(TEST_TIMEOUT) ./...
+	@echo "$(GREEN)✓ Tests passed$(NC)"
+
+.PHONY: test-short
+test-short: ## Run short tests
+	@echo "$(BLUE)Running short tests...$(NC)"
+	@$(GOTEST) -short -timeout=5m ./...
+
+.PHONY: test-verbose
+test-verbose: ## Run tests with verbose output
+	@echo "$(BLUE)Running tests (verbose)...$(NC)"
+	@$(GOTEST) -v -race -timeout=$(TEST_TIMEOUT) ./...
+
+.PHONY: test-unit
+test-unit: ## Run unit tests only
+	@echo "$(BLUE)Running unit tests...$(NC)"
+	@$(GOTEST) -short -race -coverprofile=coverage-unit.out -covermode=$(COVERAGE_MODE) ./internal/... ./pkg/...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests
+	@echo "$(BLUE)Running integration tests...$(NC)"
+	@$(GOTEST) -race -tags=integration -timeout=$(TEST_TIMEOUT) ./test/integration/...
+
+.PHONY: test-e2e
+test-e2e: ## Run end-to-end tests
+	@echo "$(BLUE)Running e2e tests...$(NC)"
+	@$(GOTEST) -tags=e2e -timeout=$(TEST_TIMEOUT) ./test/e2e/...
+
+.PHONY: test-coverage
+test-coverage: ## Run tests with coverage report
+	@echo "$(BLUE)Running tests with coverage...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
+	@$(GOTEST) -race -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=$(COVERAGE_MODE) ./...
+	@go tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
+	@echo "$(GREEN)✓ Coverage report generated: $(COVERAGE_DIR)/coverage.html$(NC)"
+	@go tool cover -func=$(COVERAGE_DIR)/coverage.out
+
+.PHONY: test-coverage-view
+test-coverage-view: test-coverage ## Run tests and open coverage report
+	@echo "$(CYAN)Opening coverage report...$(NC)"
+	@open $(COVERAGE_DIR)/coverage.html 2>/dev/null || xdg-open $(COVERAGE_DIR)/coverage.html 2>/dev/null || echo "Please open $(COVERAGE_DIR)/coverage.html manually"
+
+.PHONY: test-bench
+test-bench: ## Run benchmarks
+	@echo "$(BLUE)Running benchmarks...$(NC)"
+	@$(GOTEST) -bench=. -benchmem -timeout=$(BENCH_TIMEOUT) ./test/benchmarks/...
+
+.PHONY: test-bench-cpu
+test-bench-cpu: ## Run benchmarks with CPU profiling
+	@echo "$(BLUE)Running benchmarks with CPU profiling...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
+	@$(GOTEST) -bench=. -benchmem -cpuprofile=$(COVERAGE_DIR)/cpu.prof -timeout=$(BENCH_TIMEOUT) ./test/benchmarks/...
+	@echo "$(GREEN)✓ CPU profile saved to $(COVERAGE_DIR)/cpu.prof$(NC)"
+
+.PHONY: test-bench-mem
+test-bench-mem: ## Run benchmarks with memory profiling
+	@echo "$(BLUE)Running benchmarks with memory profiling...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
+	@$(GOTEST) -bench=. -benchmem -memprofile=$(COVERAGE_DIR)/mem.prof -timeout=$(BENCH_TIMEOUT) ./test/benchmarks/...
+	@echo "$(GREEN)✓ Memory profile saved to $(COVERAGE_DIR)/mem.prof$(NC)"
+
+.PHONY: test-race
+test-race: ## Run tests with race detector
+	@echo "$(BLUE)Running tests with race detector...$(NC)"
+	@$(GOTEST) -race -timeout=$(TEST_TIMEOUT) ./...
+
+.PHONY: test-specific
+test-specific: ## Run specific test (use TEST_FUNC=TestName)
+	@if [ -z "$(TEST_FUNC)" ]; then \
+		echo "$(RED)Please specify TEST_FUNC=TestName$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Running test: $(TEST_FUNC)...$(NC)"
+	@$(GOTEST) -v -run=$(TEST_FUNC) ./...
+
+# =============================================================================
+# Database Targets
+# =============================================================================
+
+.PHONY: db-create
+db-create: ## Create database
+	@echo "$(BLUE)Creating database...$(NC)"
+	@createdb -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) $(DB_NAME) || true
+	@echo "$(GREEN)✓ Database created$(NC)"
+
+.PHONY: db-drop
+db-drop: ## Drop database
+	@echo "$(YELLOW)Dropping database...$(NC)"
+	@dropdb -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) $(DB_NAME) || true
+	@echo "$(GREEN)✓ Database dropped$(NC)"
+
+.PHONY: db-reset
+db-reset: db-drop db-create migrate-up ## Reset database
+
+.PHONY: migrate
+migrate: migrate-up ## Run migrations (alias for migrate-up)
+
+.PHONY: migrate-up
+migrate-up: $(BUILD_DIR)/migrate ## Run database migrations up
+	@echo "$(BLUE)Running migrations up...$(NC)"
+	@$(BUILD_DIR)/migrate -database "$(DB_URL)" -path ./migrations up
+	@echo "$(GREEN)✓ Migrations completed$(NC)"
+
+.PHONY: migrate-down
+migrate-down: $(BUILD_DIR)/migrate ## Run database migrations down
+	@echo "$(YELLOW)Running migrations down...$(NC)"
+	@$(BUILD_DIR)/migrate -database "$(DB_URL)" -path ./migrations down 1
+	@echo "$(GREEN)✓ Migration rolled back$(NC)"
+
+.PHONY: migrate-force
+migrate-force: $(BUILD_DIR)/migrate ## Force migration version (use VERSION=N)
+	@if [ -z "$(VERSION)" ]; then \
+		echo "$(RED)Please specify VERSION=N$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Forcing migration to version $(VERSION)...$(NC)"
+	@$(BUILD_DIR)/migrate -database "$(DB_URL)" -path ./migrations force $(VERSION)
+
+.PHONY: migrate-create
+migrate-create: ## Create new migration (use NAME=migration_name)
+	@if [ -z "$(NAME)" ]; then \
+		echo "$(RED)Please specify NAME=migration_name$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Creating migration: $(NAME)...$(NC)"
+	@migrate create -ext sql -dir ./migrations -seq $(NAME)
+	@echo "$(GREEN)✓ Migration created$(NC)"
+
+.PHONY: db-seed
+db-seed: ## Seed database with test data
+	@echo "$(BLUE)Seeding database...$(NC)"
+	@go run scripts/seed.go
+	@echo "$(GREEN)✓ Database seeded$(NC)"
+
+.PHONY: db-backup
+db-backup: ## Backup database
+	@echo "$(BLUE)Backing up database...$(NC)"
+	@mkdir -p backups
+	@pg_dump -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) $(DB_NAME) > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql
+	@echo "$(GREEN)✓ Database backed up$(NC)"
+
+.PHONY: db-restore
+db-restore: ## Restore database (use BACKUP_FILE=path/to/backup.sql)
+	@if [ -z "$(BACKUP_FILE)" ]; then \
+		echo "$(RED)Please specify BACKUP_FILE=path/to/backup.sql$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Restoring database from $(BACKUP_FILE)...$(NC)"
+	@psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) $(DB_NAME) < $(BACKUP_FILE)
+	@echo "$(GREEN)✓ Database restored$(NC)"
+
+# =============================================================================
+# Docker Targets
+# =============================================================================
+
+.PHONY: docker-build
+docker-build: ## Build Docker images for all services
+	@echo "$(BLUE)Building Docker images...$(NC)"
+	@docker-compose build
+	@echo "$(GREEN)✓ Docker images built$(NC)"
+
+.PHONY: docker-build-no-cache
+docker-build-no-cache: ## Build Docker images without cache
+	@echo "$(BLUE)Building Docker images (no cache)...$(NC)"
+	@docker-compose build --no-cache
+	@echo "$(GREEN)✓ Docker images built$(NC)"
+
+.PHONY: docker-up
+docker-up: ## Start services with Docker Compose
+	@echo "$(CYAN)Starting services...$(NC)"
+	@docker-compose up -d
+	@echo "$(GREEN)✓ Services started$(NC)"
+
+.PHONY: docker-down
+docker-down: ## Stop services
+	@echo "$(YELLOW)Stopping services...$(NC)"
+	@docker-compose down
+	@echo "$(GREEN)✓ Services stopped$(NC)"
+
+.PHONY: docker-logs
+docker-logs: ## View Docker logs
+	@docker-compose logs -f
+
+.PHONY: docker-ps
+docker-ps: ## List running containers
+	@docker-compose ps
+
+.PHONY: docker-exec
+docker-exec: ## Execute command in container (use SERVICE=api CMD=sh)
+	@docker-compose exec $(SERVICE) $(CMD)
+
+.PHONY: docker-push
+docker-push: ## Push Docker images to registry
+	@echo "$(BLUE)Pushing Docker images...$(NC)"
+	@for service in $(SERVICES); do \
+		docker tag $(PROJECT_NAME)-$$service:latest $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-$$service:$(DOCKER_TAG); \
+		docker push $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-$$service:$(DOCKER_TAG); \
+	done
+	@echo "$(GREEN)✓ Images pushed$(NC)"
+
+.PHONY: docker-clean
+docker-clean: ## Clean Docker resources
+	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
+	@docker-compose down -v
+	@docker system prune -af --volumes
+	@echo "$(GREEN)✓ Docker resources cleaned$(NC)"
+
+# =============================================================================
+# Code Quality Targets
+# =============================================================================
+
+.PHONY: fmt
+fmt: ## Format code
+	@echo "$(BLUE)Formatting code...$(NC)"
+	@$(GOFMT) -s -w .
+	@goimports -w .
+	@echo "$(GREEN)✓ Code formatted$(NC)"
+
+.PHONY: fmt-check
+fmt-check: ## Check code formatting
+	@echo "$(BLUE)Checking code formatting...$(NC)"
+	@if [ -n "$$(gofmt -s -l .)" ]; then \
+		echo "$(RED)Code needs formatting. Run 'make fmt'$(NC)"; \
+		gofmt -s -d .; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)✓ Code formatting OK$(NC)"
+
+.PHONY: lint
+lint: ## Run linters
+	@echo "$(BLUE)Running linters...$(NC)"
+	@if ! command -v golangci-lint > /dev/null; then \
+		echo "$(YELLOW)Installing golangci-lint...$(NC)"; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin; \
+	fi
+	@$(GOLINT) run --timeout=10m ./...
+	@echo "$(GREEN)✓ Linting passed$(NC)"
+
+.PHONY: lint-fix
+lint-fix: ## Fix linting issues
+	@echo "$(BLUE)Fixing linting issues...$(NC)"
+	@$(GOLINT) run --fix ./...
+	@echo "$(GREEN)✓ Linting issues fixed$(NC)"
+
+.PHONY: vet
+vet: ## Run go vet
+	@echo "$(BLUE)Running go vet...$(NC)"
+	@$(GOVET) ./...
+	@echo "$(GREEN)✓ Vet passed$(NC)"
+
+.PHONY: security
+security: ## Run security checks
+	@echo "$(BLUE)Running security checks...$(NC)"
+	@if ! command -v gosec > /dev/null; then \
+		echo "$(YELLOW)Installing gosec...$(NC)"; \
+		go install github.com/securego/gosec/v2/cmd/gosec@latest; \
+	fi
+	@gosec -quiet ./...
+	@echo "$(GREEN)✓ Security checks passed$(NC)"
+
+.PHONY: vuln
+vuln: ## Check for vulnerabilities
+	@echo "$(BLUE)Checking for vulnerabilities...$(NC)"
+	@go list -json -m all | nancy sleuth
+	@echo "$(GREEN)✓ No vulnerabilities found$(NC)"
+
+.PHONY: staticcheck
+staticcheck: ## Run static analysis
+	@echo "$(BLUE)Running static analysis...$(NC)"
+	@if ! command -v staticcheck > /dev/null; then \
+		echo "$(YELLOW)Installing staticcheck...$(NC)"; \
+		go install honnef.co/go/tools/cmd/staticcheck@latest; \
+	fi
+	@staticcheck ./...
+	@echo "$(GREEN)✓ Static analysis passed$(NC)"
+
+.PHONY: check
+check: fmt-check vet lint security ## Run all checks
+
+# =============================================================================
+# Documentation Targets
+# =============================================================================
+
+.PHONY: docs
+docs: ## Generate documentation
+	@echo "$(BLUE)Generating documentation...$(NC)"
+	@if ! command -v swag > /dev/null; then \
+		echo "$(YELLOW)Installing swag...$(NC)"; \
+		go install github.com/swaggo/swag/cmd/swag@latest; \
+	fi
+	@swag init -g cmd/api/main.go -o docs/api
+	@echo "$(GREEN)✓ Documentation generated$(NC)"
+
+.PHONY: docs-serve
+docs-serve: docs ## Serve documentation
+	@echo "$(CYAN)Serving documentation at http://localhost:8080$(NC)"
+	@python3 -m http.server 8080 --directory docs
+
+.PHONY: godoc
+godoc: ## Run godoc server
+	@echo "$(CYAN)Starting godoc server at http://localhost:6060$(NC)"
+	@godoc -http=:6060
+
+# =============================================================================
+# Dependencies Targets
+# =============================================================================
+
+.PHONY: deps
+deps: ## Download dependencies
+	@echo "$(BLUE)Downloading dependencies...$(NC)"
+	@$(GOMOD) download
+	@echo "$(GREEN)✓ Dependencies downloaded$(NC)"
+
+.PHONY: deps-update
+deps-update: ## Update dependencies
+	@echo "$(BLUE)Updating dependencies...$(NC)"
+	@$(GOGET) -u ./...
+	@$(GOMOD) tidy
+	@echo "$(GREEN)✓ Dependencies updated$(NC)"
+
+.PHONY: deps-tidy
+deps-tidy: ## Tidy dependencies
+	@echo "$(BLUE)Tidying dependencies...$(NC)"
+	@$(GOMOD) tidy
+	@echo "$(GREEN)✓ Dependencies tidied$(NC)"
+
+.PHONY: deps-verify
+deps-verify: ## Verify dependencies
+	@echo "$(BLUE)Verifying dependencies...$(NC)"
+	@$(GOMOD) verify
+	@echo "$(GREEN)✓ Dependencies verified$(NC)"
+
+.PHONY: deps-graph
+deps-graph: ## Show dependency graph
+	@echo "$(BLUE)Generating dependency graph...$(NC)"
+	@go mod graph
+
+# =============================================================================
+# Performance Targets
+# =============================================================================
+
+.PHONY: pprof-cpu
+pprof-cpu: ## Analyze CPU profile
+	@echo "$(CYAN)Analyzing CPU profile...$(NC)"
+	@go tool pprof -http=:8080 $(COVERAGE_DIR)/cpu.prof
+
+.PHONY: pprof-mem
+pprof-mem: ## Analyze memory profile
+	@echo "$(CYAN)Analyzing memory profile...$(NC)"
+	@go tool pprof -http=:8080 $(COVERAGE_DIR)/mem.prof
+
+.PHONY: trace
+trace: ## Run with execution tracer
+	@echo "$(BLUE)Running with execution tracer...$(NC)"
+	@$(GOTEST) -trace=$(COVERAGE_DIR)/trace.out ./...
+	@go tool trace $(COVERAGE_DIR)/trace.out
+
+# =============================================================================
+# Kubernetes Targets
+# =============================================================================
+
+.PHONY: k8s-deploy
+k8s-deploy: ## Deploy to Kubernetes
+	@echo "$(BLUE)Deploying to Kubernetes...$(NC)"
+	@kubectl apply -f deployments/k8s/
+	@echo "$(GREEN)✓ Deployed to Kubernetes$(NC)"
+
+.PHONY: k8s-delete
+k8s-delete: ## Delete from Kubernetes
+	@echo "$(YELLOW)Deleting from Kubernetes...$(NC)"
+	@kubectl delete -f deployments/k8s/
+	@echo "$(GREEN)✓ Deleted from Kubernetes$(NC)"
+
+.PHONY: k8s-logs
+k8s-logs: ## View Kubernetes logs
+	@kubectl logs -f -l app=$(PROJECT_NAME)
+
+.PHONY: helm-install
+helm-install: ## Install with Helm
+	@echo "$(BLUE)Installing with Helm...$(NC)"
+	@helm install $(PROJECT_NAME) ./deployments/helm
+	@echo "$(GREEN)✓ Installed with Helm$(NC)"
+
+.PHONY: helm-upgrade
+helm-upgrade: ## Upgrade Helm release
+	@echo "$(BLUE)Upgrading Helm release...$(NC)"
+	@helm upgrade $(PROJECT_NAME) ./deployments/helm
+	@echo "$(GREEN)✓ Helm release upgraded$(NC)"
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall Helm release
+	@echo "$(YELLOW)Uninstalling Helm release...$(NC)"
+	@helm uninstall $(PROJECT_NAME)
+	@echo "$(GREEN)✓ Helm release uninstalled$(NC)"
+
+# =============================================================================
+# Utility Targets
+# =============================================================================
+
+.PHONY: clean
+clean: ## Clean build artifacts
+	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
+	@$(GOCLEAN)
+	@rm -rf $(BUILD_DIR) $(DIST_DIR) $(COVERAGE_DIR)
+	@rm -f coverage.out coverage.html
+	@echo "$(GREEN)✓ Cleaned$(NC)"
+
+.PHONY: install
+install: ## Install binaries to $GOPATH/bin
+	@echo "$(BLUE)Installing binaries...$(NC)"
+	@for service in $(SERVICES); do \
+		echo "Installing $$service..."; \
+		$(GOBUILD) $(LDFLAGS) -o $(GOPATH)/bin/$(PROJECT_NAME)-$$service ./cmd/$$service; \
+	done
+	@echo "$(GREEN)✓ Binaries installed to $(GOPATH)/bin$(NC)"
+
+.PHONY: uninstall
+uninstall: ## Uninstall binaries from $GOPATH/bin
+	@echo "$(YELLOW)Uninstalling binaries...$(NC)"
+	@for service in $(SERVICES); do \
+		rm -f $(GOPATH)/bin/$(PROJECT_NAME)-$$service; \
+	done
+	@echo "$(GREEN)✓ Binaries uninstalled$(NC)"
+
+.PHONY: version
+version: ## Show version information
+	@echo "$(CYAN)Version Information:$(NC)"
+	@echo "  Project:    $(PROJECT_NAME)"
+	@echo "  Version:    $(VERSION)"
+	@echo "  Commit:     $(GIT_COMMIT)"
+	@echo "  Build Time: $(BUILD_TIME)"
+	@echo "  Go Version: $(GO_VERSION)"
+
+.PHONY: info
+info: version ## Show project information
+	@echo ""
+	@echo "$(CYAN)Project Structure:$(NC)"
+	@echo "  Services: $(SERVICES)"
+	@echo "  Build Dir: $(BUILD_DIR)"
+	@echo ""
+	@echo "$(CYAN)Database Configuration:$(NC)"
+	@echo "  Host: $(DB_HOST):$(DB_PORT)"
+	@echo "  Database: $(DB_NAME)"
+	@echo "  User: $(DB_USER)"
+
+.PHONY: tree
+tree: ## Show project structure
+	@tree -I 'vendor|node_modules|build|dist|coverage|.git' -L 3
+
+.PHONY: todo
+todo: ## Show TODO items in code
+	@echo "$(CYAN)TODO items:$(NC)"
+	@grep -r "TODO\|FIXME\|XXX" --include="*.go" --exclude-dir=vendor .
+
+.PHONY: loc
+loc: ## Count lines of code
+	@echo "$(CYAN)Lines of code:$(NC)"
+	@find . -name "*.go" -not -path "./vendor/*" | xargs wc -l | tail -1
+
+.PHONY: help
+help: ## Display this help
+	@echo "$(CYAN)$(PROJECT_NAME) - Available targets:$(NC)"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}' | sort
+	@echo ""
+	@echo "$(CYAN)Examples:$(NC)"
+	@echo "  make build              # Build all services"
+	@echo "  make test              # Run tests"
+	@echo "  make docker-up         # Start with Docker"
+	@echo "  make dev               # Run with hot reload"
+	@echo "  make migrate-up        # Run database migrations"
+	@echo ""
+	@echo "$(CYAN)Environment variables:$(NC)"
+	@echo "  DB_HOST=$(DB_HOST)"
+	@echo "  DB_PORT=$(DB_PORT)"
+	@echo "  DB_NAME=$(DB_NAME)"
+	@echo "  DB_USER=$(DB_USER)"

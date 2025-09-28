@@ -12,17 +12,17 @@ import (
 	"strings"
 	"time"
 
-	"n8n-pro/internal/config"
-	"n8n-pro/internal/messaging"
-	"n8n-pro/internal/storage/postgres"
-	"n8n-pro/internal/workflows"
-	"n8n-pro/pkg/errors"
-	"n8n-pro/pkg/logger"
-	"n8n-pro/pkg/metrics"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"n8n-pro/internal/application/workflows"
+	"n8n-pro/internal/config"
+	"n8n-pro/internal/infrastructure/database"
+	"n8n-pro/internal/infrastructure/messaging"
+	"n8n-pro/pkg/errors"
+	"n8n-pro/pkg/logger"
+	"n8n-pro/pkg/metrics"
 )
 
 // Webhook represents a webhook in the system
@@ -80,7 +80,7 @@ type Repository interface {
 type Service struct {
 	config      *config.WebhookConfig
 	repo        Repository
-	db          *postgres.DB
+	db          *database.PgxDB
 	workflowSvc *workflows.Service
 	producer    *messaging.Producer
 	logger      logger.Logger
@@ -89,15 +89,15 @@ type Service struct {
 
 // PostgresRepository implements Repository for PostgreSQL
 type PostgresRepository struct {
-	db     *postgres.DB
+	db     *database.PgxDB
 	logger logger.Logger
 }
 
 // NewPostgresRepository creates a new PostgreSQL webhooks repository
-func NewPostgresRepository(db *postgres.DB) Repository {
+func NewPostgresRepository(db *database.PgxDB) Repository {
 	return &PostgresRepository{
 		db:     db,
-		logger: logger.New("webhooks-repository"),
+		logger: logger.New("webhooks-postgres-repo"),
 	}
 }
 
@@ -105,7 +105,7 @@ func NewPostgresRepository(db *postgres.DB) Repository {
 func NewService(
 	config *config.WebhookConfig,
 	repo Repository,
-	db *postgres.DB,
+	db *database.PgxDB,
 	workflowSvc *workflows.Service,
 	producer *messaging.Producer,
 	log logger.Logger,

@@ -4,49 +4,106 @@
 *.dll
 *.so
 *.dylib
-bin/
-dist/
 
-# Test binary, built with `go test -c`
+# Go build artifacts
 *.test
-
-# Output of the go coverage tool
 *.out
-coverage.out
-coverage.html
+/build/
+/dist/
+/bin/
 
-# Dependency directories (remove the comment below to include it)
+# Binary executables in root (legacy)
+/admin
+/api
+/migrate
+/scheduler
+/webhook
+/worker
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories
 vendor/
 
-# Go workspace file
-go.work
+# Go coverage files
+coverage.txt
+coverage.html
+coverage.out
+*.cover
+*.coverprofile
 
-# Build artifacts
-build/
+# Test artifacts
+*.test
+test-results/
+test-reports/
+
+# Environment files (keep examples)
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+!.env.example
+!configs/.env.example
+!configs/**/.env.example
 
 # Logs
 *.log
 logs/
+app.log
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Environment files
-.env
-.env.local
-.env.*.local
-!.env.test
-!.env.example
-
-# IDE files
-.vscode/
+# IDE specific files
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
+*.swn
+*.vim
+.DS_Store
+Thumbs.db
+
+# Debug files
+debug
+__debug_bin
+*.pprof
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+~*
+
+# Archive directory (if temporary)
+/_archive/
+
+# Storage directory (local development)
+/storage/uploads/
+/storage/temp/
+/storage/cache/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker volumes (local development)
+.docker/
+
+# Kubernetes generated files
+deployments/k8s/secrets/
+*.secret.yaml
+
+# TLS certificates (except examples)
+*.pem
+*.key
+*.crt
+*.cer
+!examples/**/*.pem
+!examples/**/*.key
 
 # OS generated files
 .DS_Store
@@ -56,100 +113,34 @@ pids
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.backup
-
-# Database files (local development)
-*.db
-*.sqlite
-*.sqlite3
-
-# Storage directory contents (but keep the directory structure)
-storage/uploads/*
-!storage/uploads/.gitkeep
-storage/temp/*
-!storage/temp/.gitkeep
-storage/logs/*
-!storage/logs/.gitkeep
-
-# Docker volumes and data
-docker-data/
-postgres_data/
-redis_data/
-kafka_data/
-
-# Kubernetes secrets and configs
-*.secret.yaml
-*secret*.yaml
-
-# TLS certificates
-*.crt
-*.key
-*.pem
-*.p12
-*.pfx
-
-# Backup files
-*.orig
-*.rej
-*.patch
-
-# Node.js (if any frontend components)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Go module download cache
-go/pkg/mod/
-
-# Air (live reload tool) temp files
+# Air (live reload) temporary files
 tmp/
+.air.tmp
 
-# Delve debugger files
-__debug_bin
-
-# Editor-specific files
-*.sublime-project
-*.sublime-workspace
-
-# JetBrains IDEs
-.idea/
-*.iml
-*.iws
-
-# Local configuration overrides
-config/local.yaml
-config/local.json
-configs/local.yaml
-configs/local.json
-
-# Test artifacts
-testdata/temp/
-test-results/
-junit.xml
-
-# Documentation build artifacts
-site/
-docs/site/
-
-# Backup directories
-backup/
-backups/
-
-# Cache directories
-.cache/
-cache/
-
-# Profiling files
+# Profiling data
 *.prof
-*.trace
+*.mem
+*.cpu
 
-# Local development scripts
-dev-*.sh
-test-*.sh
-debug-*.sh
+# Generated documentation
+docs/generated/
+docs/_build/
+
+# Node modules (if frontend is included)
+node_modules/
+
+# Python cache (if Python scripts are used)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Terraform files (if using Terraform for deployment)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Custom ignores for this project
+/postman/environments/*.json
+!postman/environments/*.example.json

@@ -1,0 +1,319 @@
+# Pre-commit hooks for n8n Pro
+# Install: pip install pre-commit
+# Setup: pre-commit install
+# Run manually: pre-commit run --all-files
+
+default_stages: [commit, push]
+default_language_version:
+  python: python3.11
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        exclude: ^(.*\.(md|markdown))$
+      - id: end-of-file-fixer
+        name: Fix end of files
+        exclude: ^(.*\.(jpg|jpeg|png|gif|ico|pdf))$
+      - id: check-yaml
+        name: Check YAML syntax
+        args: ['--unsafe']
+      - id: check-json
+        name: Check JSON syntax
+      - id: check-toml
+        name: Check TOML syntax
+      - id: check-xml
+        name: Check XML syntax
+      - id: check-added-large-files
+        name: Check for large files
+        args: ['--maxkb=5000']
+      - id: check-case-conflict
+        name: Check for case conflicts
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: check-symlinks
+        name: Check for broken symlinks
+      - id: check-executables-have-shebangs
+        name: Check executables have shebangs
+      - id: check-shebang-scripts-are-executable
+        name: Check scripts with shebangs are executable
+      - id: detect-private-key
+        name: Detect private keys
+      - id: mixed-line-ending
+        name: Fix mixed line endings
+        args: ['--fix=lf']
+      - id: no-commit-to-branch
+        name: Prevent commits to protected branches
+        args: ['--branch', 'main', '--branch', 'master', '--branch', 'production']
+
+  # Go formatting and imports
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        name: Format Go code (gofmt)
+      - id: go-imports
+        name: Fix Go imports (goimports)
+      - id: go-vet
+        name: Run go vet
+      - id: go-lint
+        name: Run golint
+      - id: go-cyclo
+        name: Check cyclomatic complexity
+        args: ['-over=15']
+      - id: go-mod-tidy
+        name: Run go mod tidy
+      - id: go-unit-tests
+        name: Run Go unit tests
+        args: ['-short']
+      - id: go-build
+        name: Build Go binaries
+      - id: go-critic
+        name: Run go-critic
+      - id: golangci-lint
+        name: Run golangci-lint
+        args: ['--timeout=5m']
+
+  # Go security checks
+  - repo: https://github.com/securego/gosec
+    rev: v2.20.0
+    hooks:
+      - id: gosec
+        name: Run gosec security scanner
+        args: ['-fmt=json', '-out=gosec-report.json', '-stdout', '-verbose=text']
+
+  # Go static analysis
+  - repo: https://github.com/dominikh/staticcheck
+    rev: v0.4.7
+    hooks:
+      - id: staticcheck
+        name: Run staticcheck
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        name: Lint Dockerfiles
+        args: ['--ignore', 'DL3008', '--ignore', 'DL3009']
+
+  # Shell script checks
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: Check shell scripts
+        args: ['-x']
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        name: Lint YAML files
+        args: ['-c=.yamllint']
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint
+        name: Lint Markdown files
+        args: ['--config', '.markdownlint.json', '--fix']
+
+  # Check for secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets in code
+        args: ['--baseline', '.secrets.baseline']
+
+  # SQL linting
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 3.0.7
+    hooks:
+      - id: sqlfluff-lint
+        name: Lint SQL files
+        files: \.(sql)$
+        args: ['--dialect', 'postgres']
+      - id: sqlfluff-fix
+        name: Fix SQL formatting
+        files: \.(sql)$
+        args: ['--dialect', 'postgres']
+
+  # License headers
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.5
+    hooks:
+      - id: insert-license
+        name: Add license headers
+        files: \.go$
+        args:
+          - --license-filepath
+          - .license-header.txt
+          - --comment-style
+          - //
+
+  # Git commit message linting
+  - repo: https://github.com/jorisroovers/gitlint
+    rev: v0.19.1
+    hooks:
+      - id: gitlint
+        name: Lint commit messages
+        stages: [commit-msg]
+        args: ['--config=.gitlint']
+
+  # Check for TODOs
+  - repo: local
+    hooks:
+      - id: check-todos
+        name: Check TODOs format
+        entry: bash -c 'grep -rn "TODO\|FIXME\|XXX" --include="*.go" . | grep -v "TODO(.*):.*" && echo "TODOs must include owner: TODO(username): description" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+
+  # Go generate check
+  - repo: local
+    hooks:
+      - id: go-generate
+        name: Check go generate
+        entry: bash -c 'go generate ./... && git diff --exit-code'
+        language: system
+        pass_filenames: false
+        files: \.go$
+
+  # Check for print statements
+  - repo: local
+    hooks:
+      - id: no-println
+        name: Check for fmt.Println
+        entry: bash -c '! grep -r "fmt\.Print" --include="*.go" --exclude="*_test.go" --exclude-dir=examples .'
+        language: system
+        pass_filenames: false
+
+  # Environment file check
+  - repo: local
+    hooks:
+      - id: env-file-check
+        name: Check .env files
+        entry: bash -c 'for f in $(find . -name "*.env*" -not -path "./.git/*"); do grep -q "password\|secret\|key" "$f" && echo "WARNING: $f may contain sensitive data" || true; done'
+        language: system
+        pass_filenames: false
+
+  # API documentation
+  - repo: local
+    hooks:
+      - id: swagger-validate
+        name: Validate Swagger/OpenAPI docs
+        entry: bash -c 'if [ -f "docs/api/swagger.json" ]; then swagger validate docs/api/swagger.json; fi'
+        language: system
+        files: ^docs/api/.*\.(json|yaml|yml)$
+
+  # Database migration checks
+  - repo: local
+    hooks:
+      - id: migration-naming
+        name: Check migration file naming
+        entry: bash -c 'for f in migrations/*.sql; do [[ $(basename "$f") =~ ^[0-9]{3,4}_.+\.(up|down)\.sql$ ]] || { echo "Invalid migration name: $f"; exit 1; }; done'
+        language: system
+        pass_filenames: false
+
+  # Check test coverage
+  - repo: local
+    hooks:
+      - id: test-coverage
+        name: Check test coverage threshold
+        entry: bash -c 'go test -cover ./... | grep -E "coverage: [0-9]+\.[0-9]%" | awk "{if (\$2 < 70.0) {print \"Coverage below 70%:\", \$2; exit 1}}"'
+        language: system
+        pass_filenames: false
+        stages: [push]
+
+  # Dependency check
+  - repo: local
+    hooks:
+      - id: go-mod-check
+        name: Check go.mod and go.sum
+        entry: bash -c 'go mod verify && go mod tidy && git diff --exit-code go.mod go.sum'
+        language: system
+        pass_filenames: false
+        files: ^(go\.mod|go\.sum)$
+
+  # Check for vendored dependencies
+  - repo: local
+    hooks:
+      - id: no-vendor
+        name: Ensure vendor directory doesn't exist
+        entry: bash -c '[ ! -d "vendor" ] || { echo "Vendor directory exists. Please remove it."; exit 1; }'
+        language: system
+        pass_filenames: false
+
+  # Ensure Makefile targets work
+  - repo: local
+    hooks:
+      - id: makefile-check
+        name: Check Makefile targets
+        entry: bash -c 'make -n build > /dev/null 2>&1 || { echo "Makefile build target failed"; exit 1; }'
+        language: system
+        pass_filenames: false
+        files: ^Makefile$
+
+  # Check for debugging code
+  - repo: local
+    hooks:
+      - id: no-debug-code
+        name: Check for debug code
+        entry: bash -c '! grep -r "debug\|DEBUG\|console\.log\|print_r\|var_dump" --include="*.go" --exclude="*_test.go" --exclude-dir=pkg/logger .'
+        language: system
+        pass_filenames: false
+
+  # Validate GitHub Actions
+  - repo: local
+    hooks:
+      - id: github-actions-validate
+        name: Validate GitHub Actions workflows
+        entry: bash -c 'for f in .github/workflows/*.yml; do [ -f "$f" ] && yamllint "$f" || true; done'
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+
+  # Check binary files
+  - repo: local
+    hooks:
+      - id: no-binary-files
+        name: Prevent binary files
+        entry: bash -c 'find . -type f -name "*.go" -exec file {} \; | grep -q "binary" && echo "Binary files detected" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+
+  # Performance checks
+  - repo: local
+    hooks:
+      - id: benchmark-check
+        name: Run quick benchmarks
+        entry: bash -c 'go test -bench=. -benchtime=1x ./test/benchmarks/... > /dev/null 2>&1 || true'
+        language: system
+        pass_filenames: false
+        stages: [push]
+
+# Configuration for specific hooks
+exclude: |
+  (?x)^(
+    .*\.(jpg|jpeg|png|gif|ico|pdf|svg|woff|woff2|ttf|eot)|
+    vendor/.*|
+    \.git/.*|
+    build/.*|
+    dist/.*|
+    node_modules/.*|
+    .*\.min\.(js|css)|
+    .*\.generated\..*|
+    .*_gen\.go|
+    migrations/.*\.sql|
+    docs/api/swagger\.json|
+    .*\.pb\.go|
+    .*\.pb\.gw\.go
+  )$
+
+fail_fast: false

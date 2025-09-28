@@ -213,13 +213,13 @@ type EnhancedUser struct {
 	MaxConcurrentSessions *int `json:"max_concurrent_sessions,omitempty"`
 
 	// Relationships
-	PasswordHistory []PasswordHistory `gorm:"foreignKey:UserID" json:"-"`
-	Sessions        []Session         `gorm:"foreignKey:UserID" json:"-"`
-	EmailTokens     []EmailToken      `gorm:"foreignKey:UserID" json:"-"`
-	LoginAttempts   []LoginAttempt    `gorm:"foreignKey:UserID" json:"-"`
-	MFABackupCodes  []MFABackupCode   `gorm:"foreignKey:UserID" json:"-"`
-	TrustedDevices  []TrustedDevice   `gorm:"foreignKey:UserID" json:"-"`
-	SecurityEvents  []SecurityEvent   `gorm:"foreignKey:UserID" json:"-"`
+	PasswordHistory []PasswordHistory `gorm:\"foreignKey:UserID\" json:\"-\"`
+	Sessions        []AuthSession     `gorm:\"foreignKey:UserID\" json:\"-\"`
+	EmailTokens     []EmailToken      `gorm:\"foreignKey:UserID\" json:\"-\"`
+	LoginAttempts   []LoginAttempt    `gorm:\"foreignKey:UserID\" json:\"-\"`
+	MFABackupCodes  []MFABackupCode   `gorm:\"foreignKey:UserID\" json:\"-\"`
+	TrustedDevices  []TrustedDevice   `gorm:\"foreignKey:UserID\" json:\"-\"`
+	SecurityEvents  []SecurityEvent   `gorm:\"foreignKey:UserID\" json:\"-\"`
 }
 
 // TableName overrides the table name for EnhancedUser

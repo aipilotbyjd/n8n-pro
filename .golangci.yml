@@ -1,0 +1,724 @@
+# n8n Pro - golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  # Timeout for analysis
+  timeout: 10m
+
+  # Exit code when at least one issue was found
+  issues-exit-code: 1
+
+  # Include test files
+  tests: true
+
+  # List of build tags
+  build-tags:
+    - integration
+    - e2e
+
+  # Directories to skip
+  skip-dirs:
+    - vendor
+    - third_party
+    - testdata
+    - examples
+    - _archive
+    - build
+    - dist
+    - node_modules
+    - .git
+
+  # Files to skip
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*\\.pb\\.gw\\.go$"
+    - ".*_gen\\.go$"
+    - ".*_generated\\.go$"
+    - "mock_.*\\.go$"
+
+  # By default, golangci-lint only runs on changed files
+  # Set to false to run on all files
+  modules-download-mode: readonly
+
+  # Allow multiple parallel golangci-lint instances
+  allow-parallel-runners: true
+
+output:
+  # Format of output
+  format: colored-line-number
+
+  # Print lines of code with issue
+  print-issued-lines: true
+
+  # Print linter name in the end of issue text
+  print-linter-name: true
+
+  # Make output unique by line
+  uniq-by-line: true
+
+  # Add a prefix to the output file references
+  path-prefix: ""
+
+  # Sort results by: filepath, line and column
+  sort-results: true
+
+linters-settings:
+  # Check for pass []any as any in variadic func(...any)
+  asasalint:
+    exclude:
+      - "^fmt\\.(Print|Fprint|Sprint)(ln|f)?$"
+    use-builtin-exclusions: false
+    ignore-test: false
+
+  # Check for dangerous unicode characters
+  bidichk:
+    left-to-right-embedding: true
+    right-to-left-embedding: true
+    pop-directional-formatting: true
+    left-to-right-override: true
+    right-to-left-override: true
+    left-to-right-isolate: true
+    right-to-left-isolate: true
+    first-strong-isolate: true
+    pop-directional-isolate: true
+
+  # Check whether HTTP response body is closed successfully
+  bodyclose:
+    enabled: true
+
+  # Tool for detection of context.Context that is not used
+  contextcheck:
+    enabled: true
+
+  # Checks function and package cyclomatic complexity
+  cyclop:
+    max-complexity: 15
+    package-average: 0.0
+    skip-tests: false
+
+  # Check declaration order
+  decorder:
+    dec-order:
+      - type
+      - const
+      - var
+      - func
+    disable-dec-order-check: false
+    disable-init-func-first-check: false
+    disable-dec-num-check: false
+
+  # Deprecated code check
+  depguard:
+    rules:
+      main:
+        deny:
+          - pkg: "github.com/sirupsen/logrus"
+            desc: "Use go.uber.org/zap instead"
+          - pkg: "github.com/pkg/errors"
+            desc: "Use fmt.Errorf with %w verb or errors.Join"
+          - pkg: "io/ioutil"
+            desc: "Use io or os package instead"
+
+  # Check for two durations multiplied together
+  durationcheck:
+    enabled: true
+
+  # Check for duplicated code
+  dupl:
+    threshold: 150
+
+  # Check for unchecked errors
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    disable-default-exclusions: false
+    exclude-functions:
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+
+  # Check error names
+  errname:
+    enabled: true
+
+  # Check for error wrapped
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+  # Check for pointers to loop variables
+  exportloopref:
+    enabled: true
+
+  # Forbid identifiers
+  forbidigo:
+    forbid:
+      - ^fmt\.Print.*$
+      - ^panic$
+      - ^print$
+      - ^println$
+    exclude-godoc-examples: true
+    analyze-types: true
+
+  # Check function length
+  funlen:
+    lines: 100
+    statements: 50
+
+  # Check for complexity of functions
+  gocognit:
+    min-complexity: 30
+
+  # Check for comments
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+    ignore-tests: false
+    match-constant: true
+    numbers: true
+    min: 2
+    max: 3
+
+  # Check for critical sections
+  gocritic:
+    enabled-checks:
+      - appendAssign
+      - appendCombine
+      - argOrder
+      - assignOp
+      - badCall
+      - badCond
+      - badLock
+      - badRegexp
+      - badSorting
+      - boolExprSimplify
+      - builtinShadow
+      - builtinShadowDecl
+      - captLocal
+      - caseOrder
+      - codegenComment
+      - commentedOutCode
+      - commentedOutImport
+      - defaultCaseOrder
+      - deferInLoop
+      - deferUnlambda
+      - deprecatedComment
+      - docStub
+      - dupArg
+      - dupBranchBody
+      - dupCase
+      - dupImport
+      - dupSubExpr
+      - elseif
+      - emptyFallthrough
+      - emptyStringTest
+      - equalFold
+      - evalOrder
+      - exitAfterDefer
+      - exposedSyncMutex
+      - externalErrorReassign
+      - filepathJoin
+      - flagDeref
+      - flagName
+      - hexLiteral
+      - httpNoBody
+      - hugeParam
+      - ifElseChain
+      - importShadow
+      - indexAlloc
+      - initClause
+      - mapKey
+      - methodExprCall
+      - nestingReduce
+      - newDeref
+      - nilValReturn
+      - octalLiteral
+      - offBy1
+      - paramTypeCombine
+      - preferDecodeRune
+      - preferFilepathJoin
+      - preferFprint
+      - preferStringWriter
+      - preferWriteByte
+      - rangeExprCopy
+      - rangeValCopy
+      - redundantSprint
+      - regexpMust
+      - regexpPattern
+      - regexpSimplify
+      - ruleguard
+      - singleCaseSwitch
+      - sloppyLen
+      - sloppyReassign
+      - sloppyTypeAssert
+      - sortSlice
+      - sprintfQuotedString
+      - sqlQuery
+      - stringConcatSimplify
+      - stringXbytes
+      - switchTrue
+      - syncMapLoadAndDelete
+      - timeExprSimplify
+      - todoCommentWithoutDetail
+      - tooManyResultsChecker
+      - truncateCmp
+      - typeAssertChain
+      - typeDefFirst
+      - typeSwitchVar
+      - typeUnparen
+      - uncheckedInlineErr
+      - underef
+      - unlabelStmt
+      - unlambda
+      - unnamedResult
+      - unnecessaryBlock
+      - unnecessaryDefer
+      - unslice
+      - valSwap
+      - weakCond
+      - wrapperFunc
+      - yodaStyleExpr
+    settings:
+      captLocal:
+        paramsOnly: true
+      hugeParam:
+        sizeThreshold: 500
+      rangeExprCopy:
+        sizeThreshold: 512
+        skipTestFuncs: true
+      rangeValCopy:
+        sizeThreshold: 128
+        skipTestFuncs: true
+
+  # Check for cyclomatic complexity
+  gocyclo:
+    min-complexity: 15
+
+  # Check formatting
+  gofmt:
+    simplify: true
+    rewrite-rules:
+      - pattern: 'interface{}'
+        replacement: 'any'
+      - pattern: 'a[b:len(a)]'
+        replacement: 'a[b:]'
+
+  # Check formatting with gofumpt
+  gofumpt:
+    extra-rules: true
+    module-path: n8n-pro
+
+  # Check for security issues
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G101 # Look for hard coded credentials
+      - G104 # Audit errors not checked
+      - G204 # Audit use of command execution
+      - G304 # File path provided as taint input
+      - G401 # Use of weak cryptographic primitive
+      - G501 # Blocklisted import crypto/md5
+      - G601 # Implicit memory aliasing in for loop
+    config:
+      G306: "0600"
+      G101:
+        pattern: "(?i)passwd|pass|password|pwd|secret|token|pw|apikey|api_key|key"
+        ignore_entropy: false
+        entropy_threshold: "80"
+        per_char_threshold: "3.0"
+        truncate: "32"
+
+  # Check for simple code
+  gosimple:
+    checks: ["all"]
+
+  # Check for maintainability index
+  maintidx:
+    under: 20
+
+  # Check for slice declarations
+  makezero:
+    always: false
+
+  # Check for deeply nested statements
+  nestif:
+    min-complexity: 4
+
+  # Noctx
+  noctx:
+    enabled: true
+
+  # Check for nil
+  nilnil:
+    checked-types:
+      - ptr
+      - func
+      - iface
+      - map
+      - chan
+
+  # Find sending http request without context.Context
+  noctx:
+    enabled: true
+
+  # Check for optimizations
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+
+  # Check for fmt.Sprintf can be replaced
+  perfsprint:
+    int-conversion: true
+    err-error: true
+    errorf: true
+    sprintf1: true
+    strconcat: true
+
+  # Predeclared identifier shadowing
+  predeclared:
+    ignore: ""
+    q: false
+
+  # Check for revive rules
+  revive:
+    enable-all-rules: false
+    ignore-generated-header: true
+    severity: warning
+    rules:
+      - name: atomic
+      - name: blank-imports
+      - name: bool-literal-in-expr
+      - name: call-to-gc
+      - name: confusing-naming
+      - name: confusing-results
+      - name: constant-logical-expr
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: datarace
+      - name: deep-exit
+      - name: defer
+      - name: dot-imports
+      - name: duplicated-imports
+      - name: early-return
+      - name: empty-block
+      - name: empty-lines
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: exported
+      - name: flag-parameter
+      - name: function-result-limit
+        arguments: [3]
+      - name: get-return
+      - name: identical-branches
+      - name: if-return
+      - name: import-shadowing
+      - name: imports-blacklist
+        arguments:
+          - "crypto/md5"
+          - "crypto/sha1"
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: modifies-parameter
+      - name: modifies-value-receiver
+      - name: nested-structs
+      - name: optimize-operands-order
+      - name: package-comments
+      - name: range
+      - name: range-val-address
+      - name: range-val-in-closure
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: string-format
+      - name: string-of-int
+      - name: struct-tag
+      - name: superfluous-else
+      - name: time-equal
+      - name: time-naming
+      - name: unconditional-recursion
+      - name: unexported-naming
+      - name: unexported-return
+      - name: unhandled-error
+      - name: unnecessary-stmt
+      - name: unreachable-code
+      - name: unused-parameter
+      - name: unused-receiver
+      - name: use-any
+      - name: useless-break
+      - name: var-declaration
+      - name: var-naming
+      - name: waitgroup-by-value
+
+  # Staticcheck
+  staticcheck:
+    checks: ["all"]
+
+  # Struct tag check
+  tagliatelle:
+    case:
+      use-field-name: true
+      rules:
+        json: snake
+        yaml: snake
+        xml: camel
+        bson: camel
+        avro: snake
+        mapstructure: kebab
+        env: upperSnake
+
+  # Check for test helpers
+  thelper:
+    test:
+      first: true
+      name: true
+      begin: true
+    benchmark:
+      first: true
+      name: true
+      begin: true
+    tb:
+      first: true
+      name: true
+      begin: true
+    fuzz:
+      first: true
+      name: true
+      begin: true
+
+  # Type parameter checker
+  tparallel:
+    ignore-missing: false
+
+  # Check for unconvert
+  unconvert:
+    fast-math: true
+    safe: true
+
+  # Check for unparam
+  unparam:
+    check-exported: true
+
+  # Check for unused
+  unused:
+    check-exported: false
+
+  # Check for inefficient assignments
+  wastedassign:
+    enabled: true
+
+  # Whitespace check
+  whitespace:
+    multi-if: true
+    multi-func: true
+
+  # WSL - Whitespace Linter
+  wsl:
+    strict-append: true
+    allow-assign-and-call: true
+    allow-assign-and-anything: false
+    allow-multiline-assign: true
+    allow-separated-leading-comment: false
+    force-case-trailing-whitespace: 0
+    force-err-cuddling: false
+    force-short-decl-cuddling: false
+    allow-trailing-comment: false
+
+linters:
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - cyclop
+    - decorder
+    - depguard
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - gocheckcompilerdirectives
+    - gochecknoglobals
+    - gochecknoinits
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - godox
+    - goerr113
+    - gofmt
+    - gofumpt
+    - goheader
+    - goimports
+    - gomnd
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - gosmopolitan
+    - govet
+    - grouper
+    - importas
+    - inamedparam
+    - ineffassign
+    - interfacebloat
+    - intrange
+    - ireturn
+    - lll
+    - loggercheck
+    - maintidx
+    - makezero
+    - mirror
+    - misspell
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - stylecheck
+    - tagalign
+    - tagliatelle
+    - tenv
+    - testableexamples
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - varnamelen
+    - wastedassign
+    - whitespace
+    - wrapcheck
+    - wsl
+    - zerologlint
+
+  disable:
+    - execinquery  # deprecated
+    - exhaustruct  # too strict
+    - gci          # conflicts with goimports
+    - ginkgolinter # we don't use ginkgo
+    - nlreturn     # too strict
+    - nosnakecase  # deprecated
+    - structcheck  # deprecated
+    - varcheck     # deprecated
+    - deadcode     # deprecated
+    - ifshort      # deprecated
+    - interfacer   # deprecated
+    - maligned     # deprecated
+    - scopelint    # deprecated
+    - golint       # deprecated
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+
+  # Maximum count of issues with the same text
+  max-same-issues: 5
+
+  # Show only new issues
+  new: false
+
+  # Fix found issues (if it's supported by the linter)
+  fix: false
+
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - dupl
+        - errcheck
+        - funlen
+        - gocognit
+        - goconst
+        - gocyclo
+        - gosec
+        - lll
+        - wrapcheck
+
+    # Exclude known patterns
+    - linters:
+        - gosec
+      text: "G104: Errors unhandled"
+      path: _test\.go
+
+    # Exclude some linters from running on generated files
+    - path: _gen\.go
+      linters:
+        - gochecknoglobals
+        - gocognit
+        - gocyclo
+        - gocritic
+        - godox
+        - funlen
+        - lll
+        - dupl
+
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+    # Exclude test utilities
+    - path: internal/testutils
+      linters:
+        - gochecknoglobals
+
+    # Allow TODO comments in code
+    - linters:
+        - godox
+      text: "TODO"
+
+    # Allow context.Background() in main
+    - path: cmd/.*/main\.go
+      linters:
+        - contextcheck
+
+    # Exclude certain patterns
+    - text: "Error return value of .((os\\.)?std(out|err)\\..*|.*Close|.*Flush|os\\.Remove(All)?|.*print(f|ln)?|os\\.(Un)?Setenv). is not checked"
+      linters:
+        - errcheck
+
+    # Exclude shadow checking on err
+    - text: "shadow: declaration of \"err\" shadows declaration at"
+      linters:
+        - govet
+
+    # Allow init functions in

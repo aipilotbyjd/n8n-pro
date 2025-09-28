@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/database"
+	"n8n-pro/internal/infrastructure/database"
 )
 
 const usage = `

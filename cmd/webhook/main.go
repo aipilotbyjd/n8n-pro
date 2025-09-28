@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/messaging"
+	"n8n-pro/internal/infrastructure/messaging"
 	"n8n-pro/internal/storage/postgres"
 	"n8n-pro/internal/webhooks"
-	"n8n-pro/internal/workflows"
+	"n8n-pro/internal/domain/workflow"
 	"n8n-pro/pkg/logger"
 
 	"github.com/go-chi/chi/v5"

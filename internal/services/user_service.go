@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	"n8n-pro/internal/database"
+	"n8n-pro/internal/infrastructure/database"
 	"n8n-pro/internal/models"
 
 	"golang.org/x/crypto/bcrypt"

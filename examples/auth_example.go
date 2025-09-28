@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"n8n-pro/internal/api/handlers"
-	"n8n-pro/internal/api/middleware"
-	"n8n-pro/internal/auth"
+	"n8n-pro/internal/presentation/http/handlers"
+	"n8n-pro/internal/presentation/http/middleware"
+	"n8n-pro/internal/application/auth"
 	"n8n-pro/internal/auth/jwt"
 	"n8n-pro/internal/models"
 	"n8n-pro/pkg/logger"

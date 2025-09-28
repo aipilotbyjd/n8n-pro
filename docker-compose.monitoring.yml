@@ -1,0 +1,366 @@
+version: '3.9'
+
+services:
+  # =============================================================================
+  # Prometheus - Metrics collection
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: n8n-prometheus
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./configs/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9090"
+
+  # =============================================================================
+  # Grafana - Visualization
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: n8n-grafana
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    ports:
+      - "3000:3000"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+
+  # =============================================================================
+  # Loki - Log aggregation
+  # =============================================================================
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: n8n-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # Promtail - Log collector
+  # =============================================================================
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: n8n-promtail
+    volumes:
+      - ./configs/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./logs:/app/logs:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - loki
+
+  # =============================================================================
+  # Jaeger - Distributed tracing
+  # =============================================================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: n8n-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    ports:
+      - "5775:5775/udp"   # Zipkin compact thrift
+      - "6831:6831/udp"   # Jaeger compact thrift
+      - "6832:6832/udp"   # Jaeger binary thrift
+      - "5778:5778"       # Config HTTP
+      - "16686:16686"     # Jaeger UI
+      - "14268:14268"     # Jaeger collector HTTP
+      - "14250:14250"     # Jaeger gRPC
+      - "14269:14269"     # Admin port
+      - "9411:9411"       # Zipkin
+      - "4317:4317"       # OTLP gRPC
+      - "4318:4318"       # OTLP HTTP
+    volumes:
+      - jaeger_data:/badger
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # AlertManager - Alert management
+  # =============================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: n8n-alertmanager
+    volumes:
+      - ./configs/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.advertise-address=0.0.0.0:9093'
+    ports:
+      - "9093:9093"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # Node Exporter - Host metrics
+  # =============================================================================
+  node-exporter:
+    image: prom/node-exporter:v1.6.0
+    container_name: n8n-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9100"
+
+  # =============================================================================
+  # cAdvisor - Container metrics
+  # =============================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: n8n-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8080"
+
+  # =============================================================================
+  # Postgres Exporter - Database metrics
+  # =============================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.13.2
+    container_name: n8n-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:password@postgres:5432/n8n_pro?sslmode=disable"
+      PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
+      PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      PG_EXPORTER_EXCLUDE_DATABASES: "template0,template1"
+    ports:
+      - "9187:9187"
+    networks:
+      - monitoring
+      - n8n-network
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9187"
+
+  # =============================================================================
+  # Redis Exporter - Cache metrics
+  # =============================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.52.0
+    container_name: n8n-redis-exporter
+    environment:
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ""
+    ports:
+      - "9121:9121"
+    networks:
+      - monitoring
+      - n8n-network
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9121"
+
+  # =============================================================================
+  # Blackbox Exporter - Probe endpoints
+  # =============================================================================
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: n8n-blackbox-exporter
+    volumes:
+      - ./configs/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    ports:
+      - "9115:9115"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9115"
+
+  # =============================================================================
+  # Tempo - Trace storage (alternative to Jaeger)
+  # =============================================================================
+  tempo:
+    image: grafana/tempo:2.2.0
+    container_name: n8n-tempo
+    command: [ "-config.file=/etc/tempo.yml" ]
+    volumes:
+      - ./configs/tempo/tempo.yml:/etc/tempo.yml
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"   # Tempo
+      - "9095:9095"   # Tempo gRPC
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9411:9411"   # Zipkin
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # Pyroscope - Continuous profiling
+  # =============================================================================
+  pyroscope:
+    image: pyroscope/pyroscope:latest
+    container_name: n8n-pyroscope
+    environment:
+      - PYROSCOPE_SERVER_HTTP_LISTEN_ADDR=:4040
+      - PYROSCOPE_LOG_LEVEL=info
+    ports:
+      - "4040:4040"
+    volumes:
+      - pyroscope_data:/var/lib/pyroscope
+    command:
+      - "server"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # VictoriaMetrics - Alternative to Prometheus (optional)
+  # =============================================================================
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.91.3
+    container_name: n8n-victoriametrics
+    ports:
+      - "8428:8428"
+    volumes:
+      - victoriametrics_data:/storage
+    command:
+      - "--storageDataPath=/storage"
+      - "--httpListenAddr=:8428"
+      - "--retentionPeriod=12"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8428"
+
+  # =============================================================================
+  # Uptime Kuma - Status page and monitoring
+  # =============================================================================
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: n8n-uptime-kuma
+    volumes:
+      - uptime_kuma_data:/app/data
+    ports:
+      - "3001:3001"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # =============================================================================
+  # Healthchecks - Cron monitoring
+  # =============================================================================
+  healthchecks:
+    image: healthchecks/healthchecks:v2.10
+    container_name: n8n-healthchecks
+    environment:
+      - SECRET_KEY=your-secret-key-here
+      - ALLOWED_HOSTS=*
+      - DB=sqlite
+      - DB_NAME=/data/hc.sqlite
+      - EMAIL_HOST=smtp.gmail.com
+      - EMAIL_PORT=587
+      - EMAIL_USE_TLS=True
+      - SITE_ROOT=http://localhost:8000
+      - SITE_NAME=n8n Pro Health Checks
+      - REGISTRATION_OPEN=True
+    volumes:
+      - healthchecks_data:/data
+    ports:
+      - "8000:8000"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+networks:
+  monitoring:
+    driver: bridge
+    name: monitoring-network
+  n8n-network:
+    external: true
+    name: n8n-network
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  jaeger_data:
+  tempo_data:
+  alertmanager_data:
+  pyroscope_data:
+  victoriametrics_data:
+  uptime_kuma_data:
+  healthchecks_data:

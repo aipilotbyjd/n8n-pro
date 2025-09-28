@@ -12,7 +12,7 @@ import (
 
 	"n8n-pro/internal/config"
 	"n8n-pro/internal/storage/postgres"
-	"n8n-pro/internal/workflows"
+	"n8n-pro/internal/domain/workflow"
 	"n8n-pro/pkg/logger"
 	"n8n-pro/pkg/metrics"
 

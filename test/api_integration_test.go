@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"n8n-pro/internal/auth"
+	"n8n-pro/internal/application/auth"
 	"n8n-pro/internal/config"
-	"n8n-pro/internal/workflows"
+	"n8n-pro/internal/domain/workflow"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
