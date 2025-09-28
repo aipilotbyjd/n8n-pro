@@ -123,12 +123,14 @@ func NewAuthService(
 type RegisterRequest struct {
 	Email           string `json:"email" validate:"required,email"`
 	Password        string `json:"password" validate:"required,min=8"`
-	ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=Password"`
-	FirstName       string `json:"first_name" validate:"required,min=1,max=100"`
-	LastName        string `json:"last_name" validate:"required,min=1,max=100"`
+	ConfirmPassword string `json:"confirm_password,omitempty" validate:"omitempty,eqfield=Password"`
+	Name            string `json:"name,omitempty"` // For backward compatibility
+	FirstName       string `json:"first_name,omitempty" validate:"omitempty,min=1,max=100"`
+	LastName        string `json:"last_name,omitempty" validate:"omitempty,min=1,max=100"`
 	OrganizationID  string `json:"organization_id,omitempty"`
+	OrganizationName string `json:"organization_name,omitempty"` // For backward compatibility
 	CaptchaToken    string `json:"captcha_token,omitempty"`
-	AcceptTerms     bool   `json:"accept_terms" validate:"required"`
+	AcceptTerms     bool   `json:"accept_terms,omitempty"`
 	DeviceInfo      *SessionCreateRequest `json:"device_info,omitempty"`
 }
 

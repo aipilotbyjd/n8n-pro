@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"n8n-pro/internal/auth"
+	"n8n-pro/internal/api/handlers"
 	// "n8n-pro/internal/api/middleware" // Will be used when protected routes are added
 	"n8n-pro/internal/api/routes"
 	"n8n-pro/internal/auth/jwt"
@@ -82,9 +83,35 @@ func main() {
 	// 	credentialManager,
 	// )
 
-	// Initialize services
+	// Initialize JWT service first
+	jwtSvc := jwt.New(&jwt.Config{
+		Secret:               cfg.Auth.JWTSecret,
+		AccessTokenDuration:  cfg.Auth.JWTExpiration,
+		RefreshTokenDuration: cfg.Auth.RefreshTokenExpiration,
+		Issuer:               "n8n-pro",
+		Audience:             "n8n-pro-api",
+	})
+
+	// Initialize auth services
 	authRepo := auth.NewPostgresRepository(db.DB)
-	authSvc := auth.NewService(authRepo)
+	compatService := auth.NewService(authRepo)
+	
+	// Initialize enhanced auth service
+	log.Info("Initializing auth service...")
+	authService, err := auth.NewAuthService(
+		db.DB,
+		jwtSvc,
+		nil, // email service - TODO: implement
+		nil, // captcha service - TODO: implement
+		nil, // auth config - use defaults
+	)
+	if err != nil {
+		log.Error("Failed to initialize enhanced auth service", "error", err)
+		// Continue without enhanced auth service for now
+		authService = nil
+	} else {
+		log.Info("Auth service initialized successfully")
+	}
 	
 	// TODO: Re-enable workflow-related services
 	// Create adapter for workflows.UserService
@@ -107,13 +134,6 @@ func main() {
 	// webhookRepo := webhooks.NewPostgresRepository(db)
 	// webhookSvc := webhooks.NewService(nil, webhookRepo, db, workflowSvc, nil, log)
 	nodeRegistry := nodes.NewRegistry(log)
-	jwtSvc := jwt.New(&jwt.Config{
-		Secret:               cfg.Auth.JWTSecret,
-		AccessTokenDuration:  cfg.Auth.JWTExpiration,
-		RefreshTokenDuration: cfg.Auth.RefreshTokenExpiration,
-		Issuer:               "n8n-pro",
-		Audience:             "n8n-pro-api",
-	})
 
 	// TODO: Re-enable workflow service updates
 	// Update workflow service with real implementations
@@ -123,7 +143,7 @@ func main() {
 	// workflowSvc.CredSvc = credSvc
 
 	// Create HTTP server
-	server := createServer(cfg, db.DB, authSvc, jwtSvc, teamSvc, nodeRegistry, log)
+	server := createServer(cfg, db.DB, compatService, authService, jwtSvc, teamSvc, nodeRegistry, log)
 
 	// Start metrics server
 	if cfg.Metrics.Enabled {
@@ -174,8 +194,17 @@ func main() {
 	log.Info("Server exited")
 }
 
-func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, jwtSvc *jwt.Service, teamSvc *teams.Service, nodeRegistry *nodes.Registry, log logger.Logger) *http.Server {
+func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, authService *auth.AuthService, jwtSvc *jwt.Service, teamSvc *teams.Service, nodeRegistry *nodes.Registry, log logger.Logger) *http.Server {
 	r := chi.NewRouter()
+
+	// Initialize handlers first
+	var authHandler *handlers.AuthHandler
+	if authService != nil {
+		log.Info("Creating auth handler with enhanced auth service")
+		authHandler = handlers.NewAuthHandler(authService, jwtSvc, log)
+	} else {
+		log.Warn("Auth service not available, auth endpoints will not be registered")
+	}
 
 	// Middleware
 	r.Use(chimiddleware.RequestID)
@@ -268,13 +297,46 @@ func createServer(cfg *config.Config, db *gorm.DB, authSvc *auth.Service, jwtSvc
 		w.Write([]byte(response))
 	})
 
-	// Setup routes
-	routes.SetupRoutes(r, db, authSvc, jwtSvc, teamSvc, nodeRegistry, log)
+	// Setup API routes
+	r.Route("/api/v1", func(r chi.Router) {
+		if authHandler != nil {
+			log.Info("Registering auth routes")
+			// Public auth routes
+			r.Route("/auth", func(r chi.Router) {
+				r.Post("/register", authHandler.Register)
+				r.Post("/login", authHandler.Login)
+				r.Post("/refresh", authHandler.RefreshToken)
+				r.Post("/forgot-password", authHandler.ForgotPassword)
+				r.Post("/reset-password", authHandler.ResetPassword)
+				r.Get("/verify-email", authHandler.VerifyEmail)
+			})
 
-	// TODO: Initialize handlers once services are ready
-	// Initialize handlers
+			// Protected routes would go here with middleware
+			// r.Group(func(r chi.Router) {
+			// 	r.Use(authMiddleware)
+			// 	r.Route("/users", func(r chi.Router) {
+			// 		r.Get("/me", authHandler.GetCurrentUser)
+			// 		r.Put("/me", authHandler.UpdateCurrentUser)
+			// 		r.Put("/me/password", authHandler.ChangePassword)
+			// 		r.Post("/logout", authHandler.Logout)
+			// 	})
+			// })
+		} else {
+			// Create placeholder auth routes
+			log.Warn("Creating placeholder auth routes")
+			r.Route("/auth", func(r chi.Router) {
+				r.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					w.Write([]byte(`{"error":"Auth service not available"}`))
+				})
+			})
+		}
+	})
+
+	// Setup other routes
+	routes.SetupRoutes(r, db, authSvc, jwtSvc, teamSvc, nodeRegistry, log)
 	// workflowHandler := handlers.NewWorkflowHandler(workflowSvc)
-	// authHandler := handlers.NewAuthHandler(authSvc, jwtSvc, log) // Comment out broken handler
 	// userHandler := handlers.NewUserHandler(authSvc, log)
 	// executionHandler := handlers.NewExecutionHandler(workflowSvc, log)
 	// metricsHandler := handlers.NewMetricsHandler(workflowSvc, metrics.GetGlobal(), log)
