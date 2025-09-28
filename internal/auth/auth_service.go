@@ -248,13 +248,25 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		}
 	}()
 
+	// Handle organization ID - use default organization if not provided
+	orgID := req.OrganizationID
+	if orgID == "" {
+		var defaultOrg models.Organization
+		if err := tx.Where("slug = ?", "default").First(&defaultOrg).Error; err != nil {
+			tx.Rollback()
+			s.logger.Error("Failed to find default organization", "error", err)
+			return nil, errors.New(errors.ErrorTypeDatabase, errors.CodeDatabaseQuery, "failed to find default organization")
+		}
+		orgID = defaultOrg.ID
+	}
+
 	// Create user
 	user := &models.User{
 		Email:             strings.ToLower(req.Email),
 		FirstName:         req.FirstName,
 		LastName:          req.LastName,
 		PasswordHash:      string(hashedPassword),
-		OrganizationID:    req.OrganizationID,
+		OrganizationID:    orgID,
 		Status:            "pending",
 		Role:              "member",
 		EmailVerified:     false,
