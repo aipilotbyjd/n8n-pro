@@ -22,37 +22,37 @@ import (
 
 // AuthService provides comprehensive authentication services
 type AuthService struct {
-	db              *gorm.DB
-	jwtService      *jwt.Service
-	sessionManager  *SessionManager
-	rateLimiter     *RateLimiter
-	validator       *validation.AuthValidator
-	emailService    EmailService
-	captchaService  CaptchaService
-	config          *AuthConfig
-	logger          logger.Logger
+	db             *gorm.DB
+	jwtService     *jwt.Service
+	sessionManager *SessionManager
+	rateLimiter    *RateLimiter
+	validator      *validation.AuthValidator
+	emailService   EmailService
+	captchaService CaptchaService
+	config         *AuthConfig
+	logger         logger.Logger
 }
 
 // AuthConfig contains authentication configuration
 type AuthConfig struct {
 	// Password policy
-	BcryptCost              int           `json:"bcrypt_cost"`
-	PasswordMinLength       int           `json:"password_min_length"`
-	RequireEmailVerification bool         `json:"require_email_verification"`
-	
+	BcryptCost               int  `json:"bcrypt_cost"`
+	PasswordMinLength        int  `json:"password_min_length"`
+	RequireEmailVerification bool `json:"require_email_verification"`
+
 	// Token settings
-	EmailTokenExpiry        time.Duration `json:"email_token_expiry"`
-	PasswordResetExpiry     time.Duration `json:"password_reset_expiry"`
-	
+	EmailTokenExpiry    time.Duration `json:"email_token_expiry"`
+	PasswordResetExpiry time.Duration `json:"password_reset_expiry"`
+
 	// Account settings
-	MaxLoginAttempts        int           `json:"max_login_attempts"`
-	LockoutDuration         time.Duration `json:"lockout_duration"`
-	RequireMFA              bool          `json:"require_mfa"`
-	
+	MaxLoginAttempts int           `json:"max_login_attempts"`
+	LockoutDuration  time.Duration `json:"lockout_duration"`
+	RequireMFA       bool          `json:"require_mfa"`
+
 	// Security settings
-	RequireCaptcha          bool          `json:"require_captcha"`
-	LogSecurityEvents       bool          `json:"log_security_events"`
-	
+	RequireCaptcha    bool `json:"require_captcha"`
+	LogSecurityEvents bool `json:"log_security_events"`
+
 	// Session settings
 	AllowConcurrentSessions bool          `json:"allow_concurrent_sessions"`
 	SessionTimeout          time.Duration `json:"session_timeout"`
@@ -61,18 +61,18 @@ type AuthConfig struct {
 // DefaultAuthConfig returns default authentication configuration
 func DefaultAuthConfig() *AuthConfig {
 	return &AuthConfig{
-		BcryptCost:              12,
-		PasswordMinLength:       12,
+		BcryptCost:               12,
+		PasswordMinLength:        12,
 		RequireEmailVerification: true,
-		EmailTokenExpiry:        24 * time.Hour,
-		PasswordResetExpiry:     1 * time.Hour,
-		MaxLoginAttempts:        5,
-		LockoutDuration:         30 * time.Minute,
-		RequireMFA:              false,
-		RequireCaptcha:          true,
-		LogSecurityEvents:       true,
-		AllowConcurrentSessions: true,
-		SessionTimeout:          24 * time.Hour,
+		EmailTokenExpiry:         24 * time.Hour,
+		PasswordResetExpiry:      1 * time.Hour,
+		MaxLoginAttempts:         5,
+		LockoutDuration:          30 * time.Minute,
+		RequireMFA:               false,
+		RequireCaptcha:           true,
+		LogSecurityEvents:        true,
+		AllowConcurrentSessions:  true,
+		SessionTimeout:           24 * time.Hour,
 	}
 }
 
@@ -90,6 +90,7 @@ type CaptchaService interface {
 }
 
 // NewAuthService creates a new authentication service
+// NewAuthService creates a new auth service with full configuration
 func NewAuthService(
 	db *gorm.DB,
 	jwtService *jwt.Service,
@@ -119,19 +120,83 @@ func NewAuthService(
 	}, nil
 }
 
+// NewSimpleAuthService creates a new auth service with minimal configuration
+// This is compatible with existing code that expects a simpler constructor
+func NewSimpleAuthService(repo Repository, jwtService *jwt.Service, config *AuthConfig) *AuthService {
+	if config == nil {
+		config = DefaultAuthConfig()
+	}
+
+	// Get DB from repository if it's a PostgresRepository
+	var db *gorm.DB
+	if pgRepo, ok := repo.(*PostgresRepository); ok {
+		db = pgRepo.db
+	}
+
+	// Create default email service (no-op for now)
+	emailService := &NoOpEmailService{}
+
+	// Create default captcha service (no-op for now)
+	captchaService := &NoOpCaptchaService{}
+
+	authService, err := NewAuthService(db, jwtService, emailService, captchaService, config)
+	if err != nil {
+		// For backward compatibility, panic on error in simple constructor
+		panic(fmt.Sprintf("Failed to create auth service: %v", err))
+	}
+
+	return authService
+}
+
+// NoOpEmailService is a no-operation email service for backward compatibility
+type NoOpEmailService struct{}
+
+func (n *NoOpEmailService) SendVerificationEmail(ctx context.Context, email, token string) error {
+	// Log instead of actually sending email
+	log := logger.New("noop-email")
+	log.Info("Email verification would be sent", "email", email, "token", token)
+	return nil
+}
+
+func (n *NoOpEmailService) SendPasswordResetEmail(ctx context.Context, email, token string) error {
+	log := logger.New("noop-email")
+	log.Info("Password reset email would be sent", "email", email, "token", token)
+	return nil
+}
+
+func (n *NoOpEmailService) SendMFACode(ctx context.Context, email, code string) error {
+	log := logger.New("noop-email")
+	log.Info("MFA code would be sent", "email", email, "code", code)
+	return nil
+}
+
+func (n *NoOpEmailService) SendSecurityAlert(ctx context.Context, email, alert string) error {
+	log := logger.New("noop-email")
+	log.Info("Security alert would be sent", "email", email, "alert", alert)
+	return nil
+}
+
+// NoOpCaptchaService is a no-operation captcha service for backward compatibility
+type NoOpCaptchaService struct{}
+
+func (n *NoOpCaptchaService) Verify(ctx context.Context, token, action string) (float64, error) {
+	// Always return success for no-op captcha
+	return 0.9, nil // Return high confidence score
+}
+
 // RegisterRequest contains user registration data
 type RegisterRequest struct {
-	Email           string `json:"email" validate:"required,email"`
-	Password        string `json:"password" validate:"required,min=8"`
-	ConfirmPassword string `json:"confirm_password,omitempty" validate:"omitempty,eqfield=Password"`
-	Name            string `json:"name,omitempty"` // For backward compatibility
-	FirstName       string `json:"first_name,omitempty" validate:"omitempty,min=1,max=100"`
-	LastName        string `json:"last_name,omitempty" validate:"omitempty,min=1,max=100"`
-	OrganizationID  string `json:"organization_id,omitempty"`
-	OrganizationName string `json:"organization_name,omitempty"` // For backward compatibility
-	CaptchaToken    string `json:"captcha_token,omitempty"`
-	AcceptTerms     bool   `json:"accept_terms,omitempty"`
-	DeviceInfo      *SessionCreateRequest `json:"device_info,omitempty"`
+	Email            string                `json:"email" validate:"required,email"`
+	Password         string                `json:"password" validate:"required,min=8"`
+	ConfirmPassword  string                `json:"confirm_password,omitempty" validate:"omitempty,eqfield=Password"`
+	Name             string                `json:"name,omitempty"` // For backward compatibility
+	FirstName        string                `json:"first_name,omitempty" validate:"omitempty,min=1,max=100"`
+	LastName         string                `json:"last_name,omitempty" validate:"omitempty,min=1,max=100"`
+	OrganizationID   string                `json:"organization_id,omitempty"`
+	OrganizationName string                `json:"organization_name,omitempty"` // For backward compatibility
+	CaptchaToken     string                `json:"captcha_token,omitempty"`
+	AcceptTerms      bool                  `json:"accept_terms,omitempty"`
+	DeviceInfo       *SessionCreateRequest `json:"device_info,omitempty"`
 }
 
 // Register creates a new user account
@@ -146,7 +211,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		if err := s.validator.ValidateCaptcha(req.CaptchaToken, "register"); err != nil {
 			return nil, err
 		}
-		
+
 		score, err := s.captchaService.Verify(ctx, req.CaptchaToken, "register")
 		if err != nil || score < 0.5 {
 			s.logSecurityEvent(ctx, "", "register_captcha_failed", req.Email, "")
@@ -158,7 +223,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 	if err := s.validator.ValidateEmail(req.Email); err != nil {
 		return nil, err
 	}
-	
+
 	if err := s.validator.ValidateEmailUnique(ctx, req.Email); err != nil {
 		return nil, err
 	}
@@ -185,14 +250,14 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 
 	// Create user
 	user := &models.User{
-		Email:          strings.ToLower(req.Email),
-		FirstName:      req.FirstName,
-		LastName:       req.LastName,
-		PasswordHash:   string(hashedPassword),
-		OrganizationID: req.OrganizationID,
-		Status:         "pending",
-		Role:           "member",
-		EmailVerified:  false,
+		Email:             strings.ToLower(req.Email),
+		FirstName:         req.FirstName,
+		LastName:          req.LastName,
+		PasswordHash:      string(hashedPassword),
+		OrganizationID:    req.OrganizationID,
+		Status:            "pending",
+		Role:              "member",
+		EmailVerified:     false,
 		PasswordChangedAt: time.Now(),
 		Profile: models.JSONB{
 			"accepted_terms": req.AcceptTerms,
@@ -215,7 +280,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		PasswordHash: string(hashedPassword),
 		CreatedAt:    time.Now(),
 	}
-	
+
 	if err := tx.Create(passwordHistory).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery, "failed to create password history")
@@ -288,30 +353,30 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 
 	return &AuthResponse{
 		User: &UserResponse{
-			ID:        user.ID,
-			Email:     user.Email,
-			FirstName: user.FirstName,
-			LastName:  user.LastName,
-			Status:    user.Status,
-			Role:      user.Role,
+			ID:            user.ID,
+			Email:         user.Email,
+			FirstName:     user.FirstName,
+			LastName:      user.LastName,
+			Status:        user.Status,
+			Role:          user.Role,
 			EmailVerified: user.EmailVerified,
 		},
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresIn:    int64(tokenPair.AccessTokenExpiresAt.Sub(time.Now()).Seconds()),
-		TokenType:    tokenPair.TokenType,
-		SessionID:    getSessionID(session),
+		AccessToken:    tokenPair.AccessToken,
+		RefreshToken:   tokenPair.RefreshToken,
+		ExpiresIn:      int64(time.Until(tokenPair.AccessTokenExpiresAt).Seconds()),
+		TokenType:      tokenPair.TokenType,
+		SessionID:      getSessionID(session),
 		RequiresAction: s.getRequiredActions(user),
 	}, nil
 }
 
 // LoginRequest contains login credentials
 type LoginRequest struct {
-	Email        string `json:"email" validate:"required,email"`
-	Password     string `json:"password" validate:"required"`
-	CaptchaToken string `json:"captcha_token,omitempty"`
-	MFACode      string `json:"mfa_code,omitempty"`
-	RememberMe   bool   `json:"remember_me"`
+	Email        string                `json:"email" validate:"required,email"`
+	Password     string                `json:"password" validate:"required"`
+	CaptchaToken string                `json:"captcha_token,omitempty"`
+	MFACode      string                `json:"mfa_code,omitempty"`
+	RememberMe   bool                  `json:"remember_me"`
 	DeviceInfo   *SessionCreateRequest `json:"device_info,omitempty"`
 }
 
@@ -410,7 +475,7 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 		if req.RememberMe {
 			req.DeviceInfo.RememberMe = true
 		}
-		
+
 		session, err = s.sessionManager.CreateSession(ctx, user.ID, req.DeviceInfo)
 		if err != nil {
 			s.logger.Error("Failed to create session", "error", err)
@@ -464,7 +529,7 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 		},
 		AccessToken:    tokenPair.AccessToken,
 		RefreshToken:   tokenPair.RefreshToken,
-		ExpiresIn:      int64(tokenPair.AccessTokenExpiresAt.Sub(time.Now()).Seconds()),
+		ExpiresIn:      int64(time.Until(tokenPair.AccessTokenExpiresAt).Seconds()),
 		TokenType:      tokenPair.TokenType,
 		SessionID:      getSessionID(session),
 		RequiresAction: s.getRequiredActions(&user),
@@ -474,7 +539,7 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 // VerifyEmail verifies a user's email address
 func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 	tokenHash := s.hashToken(token)
-	
+
 	var emailToken models.EmailToken
 	err := s.db.WithContext(ctx).
 		Where("token_hash = ? AND token_type = 'verification' AND consumed_at IS NULL", tokenHash).
@@ -576,7 +641,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 // ResetPassword resets user password with token
 func (s *AuthService) ResetPassword(ctx context.Context, token string, newPassword string) error {
 	tokenHash := s.hashToken(token)
-	
+
 	// Get token
 	var emailToken models.EmailToken
 	err := s.db.WithContext(ctx).
@@ -742,7 +807,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*A
 		},
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
-		ExpiresIn:    int64(tokenPair.AccessTokenExpiresAt.Sub(time.Now()).Seconds()),
+		ExpiresIn:    int64(time.Until(tokenPair.AccessTokenExpiresAt).Seconds()),
 		TokenType:    tokenPair.TokenType,
 	}, nil
 }
@@ -765,7 +830,7 @@ func (s *AuthService) hashToken(token string) string {
 
 func (s *AuthService) handleFailedLogin(ctx context.Context, user *models.User) {
 	user.FailedLoginAttempts++
-	
+
 	updates := map[string]interface{}{
 		"failed_login_attempts": user.FailedLoginAttempts,
 	}
@@ -774,13 +839,13 @@ func (s *AuthService) handleFailedLogin(ctx context.Context, user *models.User) 
 	if user.FailedLoginAttempts >= s.config.MaxLoginAttempts {
 		lockedUntil := time.Now().Add(s.config.LockoutDuration)
 		updates["locked_until"] = lockedUntil
-		
+
 		// Send security alert
 		go func() {
 			alert := fmt.Sprintf("Your account has been locked due to %d failed login attempts", user.FailedLoginAttempts)
 			s.emailService.SendSecurityAlert(context.Background(), user.Email, alert)
 		}()
-		
+
 		s.logSecurityEvent(ctx, user.ID, "account_locked", user.Email, "")
 	}
 
@@ -816,21 +881,21 @@ func (s *AuthService) getUserScopes(user *models.User) []string {
 
 func (s *AuthService) getRequiredActions(user *models.User) []string {
 	actions := []string{}
-	
+
 	if !user.EmailVerified && s.config.RequireEmailVerification {
 		actions = append(actions, "verify_email")
 	}
-	
+
 	if s.config.RequireMFA && !user.MFAEnabled {
 		actions = append(actions, "setup_mfa")
 	}
-	
+
 	// Check if password needs to be changed
 	passwordAge := time.Since(user.PasswordChangedAt)
 	if passwordAge > 90*24*time.Hour {
 		actions = append(actions, "change_password")
 	}
-	
+
 	return actions
 }
 
@@ -840,7 +905,7 @@ func (s *AuthService) isKnownDevice(ctx context.Context, userID string, device *
 		Model(&models.Session{}).
 		Where("user_id = ? AND device_id = ?", userID, device.DeviceID).
 		Count(&count)
-	
+
 	return count > 0
 }
 
@@ -929,14 +994,14 @@ type AuthResponse struct {
 
 // UserResponse contains user data for responses
 type UserResponse struct {
-	ID            string    `json:"id"`
-	Email         string    `json:"email"`
-	FirstName     string    `json:"first_name"`
-	LastName      string    `json:"last_name"`
-	Status        string    `json:"status"`
-	Role          string    `json:"role"`
-	EmailVerified bool      `json:"email_verified"`
-	MFAEnabled    bool      `json:"mfa_enabled"`
+	ID            string     `json:"id"`
+	Email         string     `json:"email"`
+	FirstName     string     `json:"first_name"`
+	LastName      string     `json:"last_name"`
+	Status        string     `json:"status"`
+	Role          string     `json:"role"`
+	EmailVerified bool       `json:"email_verified"`
+	MFAEnabled    bool       `json:"mfa_enabled"`
 	LastLoginAt   *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 }

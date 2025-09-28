@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -11,15 +12,25 @@ import (
 	"n8n-pro/pkg/logger"
 )
 
+// AuthServiceInterface defines the methods required by the auth handler
+type AuthServiceInterface interface {
+	Register(ctx context.Context, req *auth.RegisterRequest) (*auth.AuthResponse, error)
+	Login(ctx context.Context, req *auth.LoginRequest) (*auth.AuthResponse, error)
+	VerifyEmail(ctx context.Context, token string) error
+	RequestPasswordReset(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword string) error
+	Logout(ctx context.Context, sessionID string) error
+}
+
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
-	authService *auth.AuthService
+	authService AuthServiceInterface
 	jwtService  *jwt.Service
 	logger      logger.Logger
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authService *auth.AuthService, jwtService *jwt.Service, logger logger.Logger) *AuthHandler {
+func NewAuthHandler(authService AuthServiceInterface, jwtService *jwt.Service, logger logger.Logger) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 		jwtService:  jwtService,
@@ -30,7 +41,7 @@ func NewAuthHandler(authService *auth.AuthService, jwtService *jwt.Service, logg
 // Register handles user registration
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req auth.RegisterRequest
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode registration request", "error", err)
@@ -78,7 +89,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req auth.LoginRequest
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode login request", "error", err)
@@ -149,7 +160,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode refresh request", "error", err)
@@ -213,7 +224,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email" validate:"required,email"`
 	}
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode forgot password request", "error", err)
@@ -241,7 +252,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		Token    string `json:"token" validate:"required"`
 		Password string `json:"password" validate:"required,min=8"`
 	}
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode reset password request", "error", err)
@@ -279,7 +290,7 @@ func (h *AuthHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement GetUser method in AuthService
 	// For now, return placeholder
 	writeSuccess(w, http.StatusOK, map[string]string{
-		"id":    userID,
+		"id":      userID,
 		"message": "Get user endpoint - implementation pending",
 	})
 }
@@ -298,7 +309,7 @@ func (h *AuthHandler) UpdateCurrentUser(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req map[string]interface{}
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode update request", "error", err)
@@ -332,7 +343,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		CurrentPassword string `json:"current_password" validate:"required"`
 		NewPassword     string `json:"new_password" validate:"required,min=8"`
 	}
-	
+
 	// Parse request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode change password request", "error", err)
@@ -343,7 +354,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement ChangePassword method in AuthService
 	// For now, return placeholder
 	h.logger.Info("Password change requested", "user_id", userID)
-	
+
 	writeSuccess(w, http.StatusOK, map[string]string{
 		"message": "Password change endpoint - implementation pending",
 		"user_id": userID,

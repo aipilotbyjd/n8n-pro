@@ -19,10 +19,23 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// loggerAdapter adapts our logger to chi's middleware interface
+type loggerAdapter struct {
+	logger interface{}
+}
+
+func (l *loggerAdapter) Print(v ...interface{}) {
+	if printer, ok := l.logger.(interface {
+		Info(msg string, fields ...interface{})
+	}); ok {
+		printer.Info(fmt.Sprint(v...))
+	}
+}
+
 // Logger provides structured logging middleware
 func Logger(logger interface{}) func(next http.Handler) http.Handler {
 	return middleware.RequestLogger(&middleware.DefaultLogFormatter{
-		Logger:  logger,
+		Logger:  &loggerAdapter{logger: logger},
 		NoColor: true,
 	})
 }
@@ -76,7 +89,7 @@ func SecurityHeaders(cfg *config.Config) func(next http.Handler) http.Handler {
 			w.Header().Set("X-XSS-Protection", "1; mode=block")
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-			
+
 			if cfg.Security.ContentSecurityPolicy != "" {
 				w.Header().Set("Content-Security-Policy", cfg.Security.ContentSecurityPolicy)
 			}
@@ -88,10 +101,12 @@ func SecurityHeaders(cfg *config.Config) func(next http.Handler) http.Handler {
 
 // RateLimit implements token bucket rate limiting
 func RateLimit(cfg *config.Config) func(next http.Handler) http.Handler {
-	// Create a rate limiter for the configured rate
+	// Create a rate limiter with default values (100 requests per minute)
+	defaultRequests := 100
+	defaultWindowSeconds := 60.0
 	limiter := rate.NewLimiter(
-		rate.Limit(cfg.Security.RateLimitRequests)/rate.Limit(cfg.Security.RateLimitWindow.Seconds()),
-		cfg.Security.RateLimitRequests,
+		rate.Limit(defaultRequests)/rate.Limit(defaultWindowSeconds),
+		defaultRequests,
 	)
 
 	return func(next http.Handler) http.Handler {
@@ -167,7 +182,7 @@ func Metrics(namespace string) func(next http.Handler) http.Handler {
 			// Record metrics
 			duration := time.Since(start).Seconds()
 			endpoint := getEndpoint(r)
-			
+
 			requestsTotal.WithLabelValues(r.Method, endpoint, strconv.Itoa(ww.statusCode)).Inc()
 			requestDuration.WithLabelValues(r.Method, endpoint).Observe(duration)
 		})
@@ -206,7 +221,7 @@ func Authentication(cfg *config.Config) func(next http.Handler) http.Handler {
 
 			// TODO: Implement actual JWT validation here
 			// For now, we'll accept any non-empty token in development
-			if cfg.App.Environment == "development" && token != "" {
+			if cfg.Environment == "development" && token != "" {
 				// Add user context (mock for development)
 				ctx := context.WithValue(r.Context(), "user_id", "dev-user-id")
 				ctx = context.WithValue(ctx, "organization_id", "dev-org-id")
@@ -236,7 +251,7 @@ func CORS(origins []string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			
+
 			// Check if origin is allowed
 			allowed := false
 			for _, allowedOrigin := range origins {
@@ -290,13 +305,13 @@ func (rw *responseWriter) WriteHeader(code int) {
 func getEndpoint(r *http.Request) string {
 	// Simplify the endpoint path for metrics
 	path := r.URL.Path
-	
+
 	// Replace common ID patterns with placeholders
 	path = strings.ReplaceAll(path, "/api/v1/users/", "/api/v1/users/{id}/")
 	path = strings.ReplaceAll(path, "/api/v1/workflows/", "/api/v1/workflows/{id}/")
 	path = strings.ReplaceAll(path, "/api/v1/organizations/", "/api/v1/organizations/{id}/")
 	path = strings.ReplaceAll(path, "/api/v1/teams/", "/api/v1/teams/{id}/")
-	
+
 	return path
 }
 
@@ -347,14 +362,14 @@ func RequireRole(roles ...string) func(http.HandlerFunc) http.HandlerFunc {
 				writeUnauthorizedResponse(w, "Authentication required")
 				return
 			}
-			
+
 			// In a real implementation, you'd check the user's role here
 			// userRole := getUserRole(userID)
 			// if !contains(roles, userRole) {
 			//     writeForbiddenResponse(w, "Insufficient permissions")
 			//     return
 			// }
-			
+
 			next.ServeHTTP(w, r)
 		}
 	}

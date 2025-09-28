@@ -12,127 +12,117 @@ import (
 	"n8n-pro/internal/api/handlers"
 	"n8n-pro/internal/auth"
 	"n8n-pro/internal/auth/jwt"
-
+	"n8n-pro/internal/models"
+	"n8n-pro/pkg/errors"
 	"n8n-pro/pkg/logger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/stretchr/testify/require"
 )
 
-// MockAuthService mocks the auth service
+// MockAuthService mocks the auth service interface
 type MockAuthService struct {
 	mock.Mock
 }
 
-func (m *MockAuthService) CreateUser(ctx context.Context, user *auth.User) error {
-	args := m.Called(ctx, user)
-	return args.Error(0)
-}
-
-func (m *MockAuthService) GetUserByEmail(ctx context.Context, email string) (*auth.User, error) {
-	args := m.Called(ctx, email)
+func (m *MockAuthService) Register(ctx context.Context, req *auth.RegisterRequest) (*auth.AuthResponse, error) {
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.User), args.Error(1)
+	return args.Get(0).(*auth.AuthResponse), args.Error(1)
 }
 
-func (m *MockAuthService) GetUserByID(ctx context.Context, id string) (*auth.User, error) {
-	args := m.Called(ctx, id)
+func (m *MockAuthService) Login(ctx context.Context, req *auth.LoginRequest) (*auth.AuthResponse, error) {
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.User), args.Error(1)
+	return args.Get(0).(*auth.AuthResponse), args.Error(1)
 }
 
-func (m *MockAuthService) UpdateUser(ctx context.Context, user *auth.User) error {
-	args := m.Called(ctx, user)
-	return args.Error(0)
-}
-
-func (m *MockAuthService) DeleteUser(ctx context.Context, id string) error {
-	args := m.Called(ctx, id)
-	return args.Error(0)
-}
-
-func (m *MockAuthService) ListUsers(ctx context.Context, teamID string) ([]*auth.User, error) {
-	args := m.Called(ctx, teamID)
-	return args.Get(0).([]*auth.User), args.Error(1)
-}
-
-func (m *MockAuthService) UpdateLastLogin(ctx context.Context, userID, ipAddress string) error {
-	args := m.Called(ctx, userID, ipAddress)
-	return args.Error(0)
-}
-
-func (m *MockAuthService) IncrementFailedLogin(ctx context.Context, userID string) error {
-	args := m.Called(ctx, userID)
-	return args.Error(0)
-}
-
-func (m *MockAuthService) IsAccountLocked(ctx context.Context, userID string) (bool, error) {
-	args := m.Called(ctx, userID)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockAuthService) SetEmailVerificationToken(ctx context.Context, userID string) (string, error) {
-	args := m.Called(ctx, userID)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockAuthService) VerifyEmail(ctx context.Context, token string) (*auth.User, error) {
+func (m *MockAuthService) VerifyEmail(ctx context.Context, token string) error {
 	args := m.Called(ctx, token)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*auth.User), args.Error(1)
+	return args.Error(0)
 }
 
-func (m *MockAuthService) SetPasswordResetToken(ctx context.Context, email string) (string, error) {
+func (m *MockAuthService) RequestPasswordReset(ctx context.Context, email string) error {
 	args := m.Called(ctx, email)
-	return args.String(0), args.Error(1)
+	return args.Error(0)
 }
 
-func (m *MockAuthService) ResetPassword(ctx context.Context, token, newPassword string) (*auth.User, error) {
+func (m *MockAuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
 	args := m.Called(ctx, token, newPassword)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) Logout(ctx context.Context, sessionID string) error {
+	args := m.Called(ctx, sessionID)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
+	args := m.Called(ctx, refreshToken)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.User), args.Error(1)
+	return args.Get(0).(*jwt.TokenPair), args.Error(1)
 }
 
 func TestAuthHandler_Register(t *testing.T) {
-	// Setup
-	mockAuthService := &MockAuthService{}
+	mockAuthService := new(MockAuthService)
 	jwtConfig := &jwt.Config{
-		Secret:               "test-secret",
+		Secret:               "test-secret-32-characters-long",
 		AccessTokenDuration:  time.Hour,
 		RefreshTokenDuration: 24 * time.Hour,
-		Issuer:              "n8n-pro-test",
-		Audience:            "n8n-pro-users",
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
 	}
 	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
-	
+
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
 
 	t.Run("successful registration", func(t *testing.T) {
-		// Setup mocks
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(nil, assert.AnError)
-		mockAuthService.On("CreateUser", mock.Anything, mock.AnythingOfType("*auth.User")).Return(nil)
-		mockAuthService.On("SetEmailVerificationToken", mock.Anything, mock.AnythingOfType("string")).Return("verification-token", nil)
+		// Setup mock response
+		expectedUser := &auth.UserResponse{
+			ID:            "user-123",
+			Email:         "test@example.com",
+			FirstName:     "John",
+			LastName:      "Doe",
+			Status:        "pending",
+			Role:          "member",
+			EmailVerified: false,
+			CreatedAt:     time.Now(),
+		}
+
+		expectedResponse := &auth.AuthResponse{
+			User:         expectedUser,
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+			SessionID:    "session-123",
+		}
+
+		mockAuthService.On("Register", mock.Anything, mock.AnythingOfType("*auth.RegisterRequest")).
+			Return(expectedResponse, nil)
 
 		// Create request
-		reqBody := map[string]string{
-			"name":     "Test User",
-			"email":    "test@example.com",
-			"password": "testpassword123",
+		reqBody := map[string]interface{}{
+			"email":             "test@example.com",
+			"password":          "securePassword123!",
+			"confirm_password":  "securePassword123!",
+			"first_name":        "John",
+			"last_name":         "Doe",
+			"organization_name": "Test Corp",
 		}
+
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -140,37 +130,34 @@ func TestAuthHandler_Register(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusCreated, w.Code)
-		
-		var response map[string]interface{}
+
+		var response auth.AuthResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.Equal(t, "User registered successfully. Please check your email for verification.", response["message"])
-		assert.NotEmpty(t, response["user_id"])
-		assert.Equal(t, "test@example.com", response["email"])
-		assert.Equal(t, "Test User", response["name"])
+		assert.Equal(t, expectedUser.Email, response.User.Email)
+		assert.NotEmpty(t, response.AccessToken)
 
 		mockAuthService.AssertExpectations(t)
 	})
 
-	t.Run("registration with existing email", func(t *testing.T) {
-		// Setup mocks
-		existingUser := &auth.User{
-			ID:    "existing-user-id",
-			Email: "test@example.com",
-			Name:  "Existing User",
-		}
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
+	t.Run("registration with validation error", func(t *testing.T) {
+		// Setup mock to return validation error
+		mockAuthService.On("Register", mock.Anything, mock.AnythingOfType("*auth.RegisterRequest")).
+			Return(nil, errors.NewValidationError("Email already exists"))
 
-		// Create request
-		reqBody := map[string]string{
-			"name":     "Test User",
-			"email":    "test@example.com",
-			"password": "testpassword123",
+		// Create request with existing email
+		reqBody := map[string]interface{}{
+			"email":            "existing@example.com",
+			"password":         "securePassword123!",
+			"confirm_password": "securePassword123!",
+			"first_name":       "John",
+			"last_name":        "Doe",
 		}
+
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -178,55 +165,71 @@ func TestAuthHandler_Register(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-
 		mockAuthService.AssertExpectations(t)
+	})
+
+	t.Run("registration with invalid JSON", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBuffer([]byte("invalid-json")))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.Register(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
 
 func TestAuthHandler_Login(t *testing.T) {
-	// Setup
-	mockAuthService := &MockAuthService{}
+	mockAuthService := new(MockAuthService)
 	jwtConfig := &jwt.Config{
-		Secret:               "test-secret",
+		Secret:               "test-secret-32-characters-long",
 		AccessTokenDuration:  time.Hour,
 		RefreshTokenDuration: 24 * time.Hour,
-		Issuer:              "n8n-pro-test",
-		Audience:            "n8n-pro-users",
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
 	}
 	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
-	
+
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
 
 	t.Run("successful login", func(t *testing.T) {
-		// Create user with hashed password
-		password := "testpassword123"
-		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		
-		user := &auth.User{
-			ID:       "user-id",
-			Email:    "test@example.com",
-			Name:     "Test User",
-			Password: string(hashedPassword),
-			Active:   true,
-			TeamID:   "team-id",
-			Role:     "admin",
+		expectedUser := &auth.UserResponse{
+			ID:            "user-123",
+			Email:         "test@example.com",
+			FirstName:     "John",
+			LastName:      "Doe",
+			Status:        "active",
+			Role:          "member",
+			EmailVerified: true,
+			CreatedAt:     time.Now(),
 		}
 
-		// Setup mocks
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(user, nil)
-		mockAuthService.On("IsAccountLocked", mock.Anything, "user-id").Return(false, nil)
-		mockAuthService.On("UpdateLastLogin", mock.Anything, "user-id", mock.AnythingOfType("string")).Return(nil)
+		expectedResponse := &auth.AuthResponse{
+			User:         expectedUser,
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+			SessionID:    "session-123",
+		}
+
+		mockAuthService.On("Login", mock.Anything, mock.AnythingOfType("*auth.LoginRequest")).
+			Return(expectedResponse, nil)
 
 		// Create request
-		reqBody := map[string]string{
+		reqBody := map[string]interface{}{
 			"email":    "test@example.com",
-			"password": password,
+			"password": "securePassword123!",
 		}
+
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -234,43 +237,29 @@ func TestAuthHandler_Login(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusOK, w.Code)
-		
-		var response map[string]interface{}
+
+		var response auth.AuthResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.NotEmpty(t, response["access_token"])
-		assert.NotEmpty(t, response["refresh_token"])
-		assert.Equal(t, "Bearer", response["token_type"])
-		assert.NotNil(t, response["user"])
+		assert.Equal(t, expectedUser.Email, response.User.Email)
+		assert.NotEmpty(t, response.AccessToken)
 
 		mockAuthService.AssertExpectations(t)
 	})
 
-	t.Run("login with invalid password", func(t *testing.T) {
-		// Create user with hashed password
-		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.DefaultCost)
-		
-		user := &auth.User{
-			ID:       "user-id",
-			Email:    "test@example.com",
-			Password: string(hashedPassword),
-			Active:   true,
-		}
+	t.Run("login with invalid credentials", func(t *testing.T) {
+		mockAuthService.On("Login", mock.Anything, mock.AnythingOfType("*auth.LoginRequest")).
+			Return(nil, errors.New(errors.ErrorTypeAuthentication, errors.CodeInvalidCredentials, "Invalid email or password"))
 
-		// Setup mocks
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(user, nil)
-		mockAuthService.On("IsAccountLocked", mock.Anything, "user-id").Return(false, nil)
-		mockAuthService.On("IncrementFailedLogin", mock.Anything, "user-id").Return(nil)
-
-		// Create request with wrong password
-		reqBody := map[string]string{
+		reqBody := map[string]interface{}{
 			"email":    "test@example.com",
 			"password": "wrongpassword",
 		}
+
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -278,76 +267,203 @@ func TestAuthHandler_Login(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
-
 		mockAuthService.AssertExpectations(t)
 	})
 
-	t.Run("login with locked account", func(t *testing.T) {
-		user := &auth.User{
-			ID:     "user-id",
-			Email:  "test@example.com",
-			Active: true,
+	t.Run("login with MFA required", func(t *testing.T) {
+		expectedResponse := &auth.AuthResponse{
+			RequiresMFA: true,
+			MFATypes:    []string{"totp"},
 		}
 
-		// Setup mocks
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(user, nil)
-		mockAuthService.On("IsAccountLocked", mock.Anything, "user-id").Return(true, nil)
+		mockAuthService.On("Login", mock.Anything, mock.AnythingOfType("*auth.LoginRequest")).
+			Return(expectedResponse, nil)
 
-		// Create request
-		reqBody := map[string]string{
+		reqBody := map[string]interface{}{
 			"email":    "test@example.com",
-			"password": "testpassword123",
+			"password": "securePassword123!",
 		}
+
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
 		handler.Login(w, req)
 
 		// Assert
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.True(t, response["requires_mfa"].(bool))
 
 		mockAuthService.AssertExpectations(t)
 	})
 }
 
-func TestAuthHandler_ForgotPassword(t *testing.T) {
-	// Setup
-	mockAuthService := &MockAuthService{}
+func TestAuthHandler_RefreshToken(t *testing.T) {
+	mockAuthService := new(MockAuthService)
 	jwtConfig := &jwt.Config{
-		Secret:               "test-secret",
+		Secret:               "test-secret-32-characters-long",
 		AccessTokenDuration:  time.Hour,
 		RefreshTokenDuration: 24 * time.Hour,
-		Issuer:              "n8n-pro-test",
-		Audience:            "n8n-pro-users",
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
 	}
 	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
-	
+
+	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
+
+	t.Run("successful token refresh", func(t *testing.T) {
+		// Create a valid refresh token first
+		tokenPair, err := jwtService.GenerateTokenPair(
+			"user-123",
+			"test@example.com",
+			"member",
+			"team-123",
+			"Test Team",
+			"pro",
+			[]string{"read", "write"},
+		)
+		require.NoError(t, err)
+
+		reqBody := map[string]interface{}{
+			"refresh_token": tokenPair.RefreshToken,
+		}
+
+		reqJSON, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(reqJSON))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.RefreshToken(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response jwt.TokenPair
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, response.AccessToken)
+		assert.NotEmpty(t, response.RefreshToken)
+	})
+
+	t.Run("refresh with invalid token", func(t *testing.T) {
+		reqBody := map[string]interface{}{
+			"refresh_token": "invalid-token",
+		}
+
+		reqJSON, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(reqJSON))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.RefreshToken(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestAuthHandler_VerifyEmail(t *testing.T) {
+	mockAuthService := new(MockAuthService)
+	jwtConfig := &jwt.Config{
+		Secret:               "test-secret-32-characters-long",
+		AccessTokenDuration:  time.Hour,
+		RefreshTokenDuration: 24 * time.Hour,
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
+	}
+	jwtService := jwt.New(jwtConfig)
+	logger := logger.New("test")
+
+	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
+
+	t.Run("successful email verification", func(t *testing.T) {
+		token := "valid-verification-token"
+		mockAuthService.On("VerifyEmail", mock.Anything, token).Return(nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify-email?token="+token, nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.VerifyEmail(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["message"], "verified successfully")
+
+		mockAuthService.AssertExpectations(t)
+	})
+
+	t.Run("verification with missing token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify-email", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.VerifyEmail(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("verification with invalid token", func(t *testing.T) {
+		token := "invalid-token"
+		mockAuthService.On("VerifyEmail", mock.Anything, token).
+			Return(errors.NewValidationError("Invalid or expired verification token"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify-email?token="+token, nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.VerifyEmail(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		mockAuthService.AssertExpectations(t)
+	})
+}
+
+func TestAuthHandler_ForgotPassword(t *testing.T) {
+	mockAuthService := new(MockAuthService)
+	jwtConfig := &jwt.Config{
+		Secret:               "test-secret-32-characters-long",
+		AccessTokenDuration:  time.Hour,
+		RefreshTokenDuration: 24 * time.Hour,
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
+	}
+	jwtService := jwt.New(jwtConfig)
+	logger := logger.New("test")
+
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
 
 	t.Run("successful password reset request", func(t *testing.T) {
-		user := &auth.User{
-			ID:     "user-id",
-			Email:  "test@example.com",
-			Active: true,
+		email := "test@example.com"
+		// Note: We don't mock this because the handler always returns success
+		// to prevent email enumeration
+
+		reqBody := map[string]interface{}{
+			"email": email,
 		}
 
-		// Setup mocks
-		mockAuthService.On("GetUserByEmail", mock.Anything, "test@example.com").Return(user, nil)
-		mockAuthService.On("SetPasswordResetToken", mock.Anything, "test@example.com").Return("reset-token", nil)
-
-		// Create request
-		reqBody := map[string]string{
-			"email": "test@example.com",
-		}
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -355,49 +471,56 @@ func TestAuthHandler_ForgotPassword(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.Equal(t, "Password reset link has been sent to your email", response["message"])
+		assert.Contains(t, response["message"], "password reset link has been sent")
+	})
 
-		mockAuthService.AssertExpectations(t)
+	t.Run("forgot password with invalid JSON", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer([]byte("invalid-json")))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.ForgotPassword(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
 
 func TestAuthHandler_ResetPassword(t *testing.T) {
-	// Setup
-	mockAuthService := &MockAuthService{}
+	mockAuthService := new(MockAuthService)
 	jwtConfig := &jwt.Config{
-		Secret:               "test-secret",
+		Secret:               "test-secret-32-characters-long",
 		AccessTokenDuration:  time.Hour,
 		RefreshTokenDuration: 24 * time.Hour,
-		Issuer:              "n8n-pro-test",
-		Audience:            "n8n-pro-users",
+		Issuer:               "n8n-pro-test",
+		Audience:             "n8n-pro-users",
 	}
 	jwtService := jwt.New(jwtConfig)
 	logger := logger.New("test")
-	
+
 	handler := handlers.NewAuthHandler(mockAuthService, jwtService, logger)
 
 	t.Run("successful password reset", func(t *testing.T) {
-		user := &auth.User{
-			ID:    "user-id",
-			Email: "test@example.com",
+		token := "valid-reset-token"
+		newPassword := "newSecurePassword123!"
+
+		mockAuthService.On("ResetPassword", mock.Anything, token, newPassword).Return(nil)
+
+		reqBody := map[string]interface{}{
+			"token":    token,
+			"password": newPassword,
 		}
 
-		// Setup mocks
-		mockAuthService.On("ResetPassword", mock.Anything, "valid-token", mock.AnythingOfType("string")).Return(user, nil)
-
-		// Create request
-		reqBody := map[string]string{
-			"token":        "valid-token",
-			"new_password": "newpassword123",
-		}
 		reqJSON, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(reqJSON))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -405,13 +528,78 @@ func TestAuthHandler_ResetPassword(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.Equal(t, "Password has been reset successfully", response["message"])
-		assert.Equal(t, "user-id", response["user_id"])
+		assert.Contains(t, response["message"], "Password reset successfully")
 
 		mockAuthService.AssertExpectations(t)
 	})
+
+	t.Run("password reset with invalid token", func(t *testing.T) {
+		token := "invalid-token"
+		newPassword := "newSecurePassword123!"
+
+		mockAuthService.On("ResetPassword", mock.Anything, token, newPassword).
+			Return(errors.NewValidationError("Invalid or expired reset token"))
+
+		reqBody := map[string]interface{}{
+			"token":    token,
+			"password": newPassword,
+		}
+
+		reqJSON, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(reqJSON))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		handler.ResetPassword(w, req)
+
+		// Assert
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		mockAuthService.AssertExpectations(t)
+	})
+}
+
+// Helper function to create a test user
+func createTestUser() *models.User {
+	now := time.Now()
+	return &models.User{
+		BaseModel: models.BaseModel{
+			ID:        "user-123",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Email:         "test@example.com",
+		FirstName:     "John",
+		LastName:      "Doe",
+		PasswordHash:  "$2a$12$encrypted.password.hash",
+		Status:        "active",
+		Role:          "member",
+		EmailVerified: true,
+	}
+}
+
+// Helper function to create test auth response
+func createTestAuthResponse() *auth.AuthResponse {
+	return &auth.AuthResponse{
+		User: &auth.UserResponse{
+			ID:            "user-123",
+			Email:         "test@example.com",
+			FirstName:     "John",
+			LastName:      "Doe",
+			Status:        "active",
+			Role:          "member",
+			EmailVerified: true,
+			CreatedAt:     time.Now(),
+		},
+		AccessToken:  "access.token.here",
+		RefreshToken: "refresh.token.here",
+		ExpiresIn:    3600,
+		TokenType:    "Bearer",
+		SessionID:    "session-123",
+	}
 }

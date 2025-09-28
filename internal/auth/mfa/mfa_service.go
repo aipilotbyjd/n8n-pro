@@ -1,13 +1,12 @@
 package mfa
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
 	"fmt"
-	"image/png"
+	"math/big"
 	"strings"
 	"time"
 
@@ -16,31 +15,31 @@ import (
 	"n8n-pro/pkg/logger"
 
 	"github.com/google/uuid"
-	"github.com/pquerna/otp"
-	"github.com/pquerna/otp/totp"
+	// "github.com/pquerna/otp"
+	// "github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 // Service provides MFA operations
 type Service struct {
-	db       *gorm.DB
-	config   *Config
-	logger   logger.Logger
+	db     *gorm.DB
+	config *Config
+	logger logger.Logger
 }
 
 // Config contains MFA configuration
 type Config struct {
-	Issuer           string        `json:"issuer"`
-	Algorithm        string        `json:"algorithm"` // SHA1, SHA256, SHA512
-	Digits           int           `json:"digits"`    // 6 or 8
-	Period           uint          `json:"period"`    // seconds (usually 30)
-	Skew             uint          `json:"skew"`      // allow N periods before/after
-	BackupCodeCount  int           `json:"backup_code_count"`
-	BackupCodeLength int           `json:"backup_code_length"`
-	QRCodeSize       int           `json:"qr_code_size"`
-	EnforceBackups   bool          `json:"enforce_backups"`
-	AllowMultiple    bool          `json:"allow_multiple_devices"`
+	Issuer           string `json:"issuer"`
+	Algorithm        string `json:"algorithm"` // SHA1, SHA256, SHA512
+	Digits           int    `json:"digits"`    // 6 or 8
+	Period           uint   `json:"period"`    // seconds (usually 30)
+	Skew             uint   `json:"skew"`      // allow N periods before/after
+	BackupCodeCount  int    `json:"backup_code_count"`
+	BackupCodeLength int    `json:"backup_code_length"`
+	QRCodeSize       int    `json:"qr_code_size"`
+	EnforceBackups   bool   `json:"enforce_backups"`
+	AllowMultiple    bool   `json:"allow_multiple_devices"`
 }
 
 // DefaultConfig returns default MFA configuration
@@ -75,21 +74,30 @@ func NewService(db *gorm.DB, config *Config) *Service {
 // MFASetupResponse contains MFA setup information
 type MFASetupResponse struct {
 	Secret       string   `json:"secret"`
-	QRCode       string   `json:"qr_code"`       // Base64 encoded PNG
-	ManualEntry  string   `json:"manual_entry"`  // For manual entry
+	QRCode       string   `json:"qr_code"`      // Base64 encoded PNG
+	ManualEntry  string   `json:"manual_entry"` // For manual entry
 	BackupCodes  []string `json:"backup_codes"`
 	RecoveryCode string   `json:"recovery_code"` // Single-use recovery code
 }
 
 // MFADevice represents a registered MFA device
 type MFADevice struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Type         string    `json:"type"` // totp, sms, email
-	IsDefault    bool      `json:"is_default"`
-	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Type       string     `json:"type"` // totp, sms, email
+	IsDefault  bool       `json:"is_default"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
+
+// KeyInfo represents a TOTP key for placeholder implementation
+type KeyInfo struct {
+	secret string
+	url    string
+}
+
+func (k *KeyInfo) Secret() string { return k.secret }
+func (k *KeyInfo) URL() string    { return k.url }
 
 // GenerateTOTPSecret generates a new TOTP secret for a user
 func (s *Service) GenerateTOTPSecret(ctx context.Context, userID string, email string) (*MFASetupResponse, error) {
@@ -107,18 +115,24 @@ func (s *Service) GenerateTOTPSecret(ctx context.Context, userID string, email s
 
 	// Generate secret
 	secret := s.generateSecret()
-	
-	// Create TOTP key
-	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      s.config.Issuer,
-		AccountName: email,
-		Period:      s.config.Period,
-		Digits:      otp.DigitsSix,
-		Algorithm:   s.getAlgorithm(),
-		Secret:      []byte(secret),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to generate TOTP key")
+
+	// Create TOTP key - DISABLED: Missing OTP dependency
+	// key, err := totp.Generate(totp.GenerateOpts{
+	// 	Issuer:      s.config.Issuer,
+	// 	AccountName: email,
+	// 	Period:      s.config.Period,
+	// 	Digits:      otp.DigitsSix,
+	// 	Algorithm:   s.getAlgorithm(),
+	// 	Secret:      []byte(secret),
+	// })
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to generate TOTP key")
+	// }
+
+	// Placeholder implementation
+	key := &KeyInfo{
+		secret: secret,
+		url:    fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s", s.config.Issuer, email, secret, s.config.Issuer),
 	}
 
 	// Generate QR code
@@ -139,7 +153,7 @@ func (s *Service) GenerateTOTPSecret(ctx context.Context, userID string, email s
 	// Store temporarily in a pending state (not yet verified)
 	// This would typically be stored in a temporary table or cache
 	// until the user verifies with a code
-	
+
 	response := &MFASetupResponse{
 		Secret:       key.Secret(),
 		QRCode:       qrCode,
@@ -151,9 +165,9 @@ func (s *Service) GenerateTOTPSecret(ctx context.Context, userID string, email s
 	// Store hashed backup codes (would be done after verification in production)
 	for _, hashedCode := range hashedCodes {
 		backupCode := &models.MFABackupCode{
-			ID:       uuid.New().String(),
-			UserID:   userID,
-			CodeHash: hashedCode,
+			ID:        uuid.New().String(),
+			UserID:    userID,
+			CodeHash:  hashedCode,
 			CreatedAt: time.Now(),
 		}
 		// These would be saved after user verifies the setup
@@ -168,7 +182,9 @@ func (s *Service) GenerateTOTPSecret(ctx context.Context, userID string, email s
 // EnableTOTP enables TOTP for a user after verification
 func (s *Service) EnableTOTP(ctx context.Context, userID string, secret string, verificationCode string) error {
 	// Verify the code first
-	valid := totp.Validate(verificationCode, secret)
+	// Verify the code first - DISABLED: Missing OTP dependency
+	// valid := totp.Validate(verificationCode, secret)
+	valid := false // Placeholder until OTP dependency is added
 	if !valid {
 		return errors.New(errors.ErrorTypeValidation, errors.CodeInvalidInput, "invalid verification code")
 	}
@@ -222,12 +238,13 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID string, code string) (b
 		return false, errors.New(errors.ErrorTypeInternal, errors.CodeInternal, "MFA secret not found")
 	}
 
-	// Validate TOTP code
-	valid := totp.Validate(code, user.MFASecret)
-	
+	// Validate TOTP code - DISABLED: Missing OTP dependency
+	// valid := totp.Validate(code, user.MFASecret)
+	valid := false // Placeholder until OTP dependency is added
+
 	if valid {
 		s.logger.Info("TOTP verification successful", "user_id", userID)
-		
+
 		// Update last MFA verification time
 		s.db.Model(&models.Session{}).
 			Where("user_id = ? AND is_active = true", userID).
@@ -261,22 +278,22 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID string, code stri
 			// Code matches - mark as used
 			now := time.Now()
 			backupCode.UsedAt = &now
-			
+
 			if err := s.db.Save(&backupCode).Error; err != nil {
 				return false, errors.Wrap(err, errors.ErrorTypeDatabase, errors.CodeDatabaseQuery, "failed to update backup code")
 			}
 
 			s.logger.Info("Backup code used successfully", "user_id", userID)
 			s.logSecurityEvent(ctx, userID, "backup_code_used", "MFA backup code was used")
-			
+
 			// Check remaining codes and warn if low
 			var remainingCount int64
 			s.db.Model(&models.MFABackupCode{}).
 				Where("user_id = ? AND used_at IS NULL", userID).
 				Count(&remainingCount)
-			
+
 			if remainingCount < 3 {
-				s.logSecurityEvent(ctx, userID, "backup_codes_low", 
+				s.logSecurityEvent(ctx, userID, "backup_codes_low",
 					fmt.Sprintf("Only %d backup codes remaining", remainingCount))
 			}
 
@@ -411,7 +428,7 @@ func (s *Service) GetMFAStatus(ctx context.Context, userID string) (*MFAStatus, 
 	}
 
 	// Get last MFA verification from session
-	var session models.Session
+	var session models.AuthSession
 	if err := s.db.Where("user_id = ? AND mfa_verified = true", userID).
 		Order("last_activity_at DESC").
 		First(&session).Error; err == nil {
@@ -423,42 +440,54 @@ func (s *Service) GetMFAStatus(ctx context.Context, userID string) (*MFAStatus, 
 
 // MFAStatus represents the current MFA status
 type MFAStatus struct {
-	Enabled              bool       `json:"enabled"`
-	Type                 string     `json:"type"`
-	BackupCodesRemaining int        `json:"backup_codes_remaining"`
-	LastVerified         *time.Time `json:"last_verified,omitempty"`
+	Enabled              bool        `json:"enabled"`
+	Type                 string      `json:"type"`
+	BackupCodesRemaining int         `json:"backup_codes_remaining"`
+	LastVerified         *time.Time  `json:"last_verified,omitempty"`
 	Devices              []MFADevice `json:"devices,omitempty"`
 }
 
 // Helper methods
 
+// generateSecret creates a base32 encoded secret for TOTP
 func (s *Service) generateSecret() string {
-	// Generate random bytes
-	randomBytes := make([]byte, 32)
+	// Generate 20 random bytes (160 bits) for TOTP secret
+	randomBytes := make([]byte, 20)
 	if _, err := rand.Read(randomBytes); err != nil {
 		panic(err)
 	}
-	
+
 	// Encode to base32
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(randomBytes)
 }
 
-func (s *Service) generateQRCode(key *otp.Key) (string, error) {
-	// Generate QR code image
-	img, err := key.Image(s.config.QRCodeSize, s.config.QRCodeSize)
-	if err != nil {
-		return "", errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to generate QR code")
-	}
+func (s *Service) generateQRCode(key *KeyInfo) (string, error) {
+	// QR Code generation - DISABLED: Missing QR code generation dependency
+	// This would normally generate a QR code image from the TOTP URL
+	// For now, return a placeholder base64-encoded 1x1 pixel PNG
 
-	// Encode to PNG
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return "", errors.Wrap(err, errors.ErrorTypeInternal, errors.CodeInternal, "failed to encode QR code")
+	// Create minimal PNG data for a 1x1 transparent pixel
+	pngData := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+		0x00, 0x00, 0x00, 0x0D, // IHDR length
+		0x49, 0x48, 0x44, 0x52, // IHDR
+		0x00, 0x00, 0x00, 0x01, // width = 1
+		0x00, 0x00, 0x00, 0x01, // height = 1
+		0x08, 0x06, 0x00, 0x00, 0x00, // bit depth, color type, compression, filter, interlace
+		0x1F, 0x15, 0xC4, 0x89, // CRC
+		0x00, 0x00, 0x00, 0x0A, // IDAT length
+		0x49, 0x44, 0x41, 0x54, // IDAT
+		0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, // compressed data
+		0x0D, 0x0A, 0x2D, 0xB4, // CRC
+		0x00, 0x00, 0x00, 0x00, // IEND length
+		0x49, 0x45, 0x4E, 0x44, // IEND
+		0xAE, 0x42, 0x60, 0x82, // CRC
 	}
 
 	// Encode to base64
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	
+	encoded := base64.StdEncoding.EncodeToString(pngData)
+
+	s.logger.Info("QR code placeholder generated", "url", key.URL())
 	return "data:image/png;base64," + encoded, nil
 }
 
@@ -507,14 +536,15 @@ func (s *Service) generateRecoveryCode() string {
 	return fmt.Sprintf("%s-%s-%s-%s", code[:4], code[4:8], code[8:12], code[12:])
 }
 
-func (s *Service) getAlgorithm() otp.Algorithm {
+// getAlgorithm returns the appropriate TOTP algorithm - DISABLED: Missing OTP dependency
+func (s *Service) getAlgorithm() string {
 	switch s.config.Algorithm {
 	case "SHA256":
-		return otp.AlgorithmSHA256
+		return "SHA256"
 	case "SHA512":
-		return otp.AlgorithmSHA512
+		return "SHA512"
 	default:
-		return otp.AlgorithmSHA1
+		return "SHA1"
 	}
 }
 
@@ -543,6 +573,3 @@ func (s *Service) logSecurityEvent(ctx context.Context, userID string, eventType
 		}
 	}()
 }
-
-// Add missing import
-import "math/big"
