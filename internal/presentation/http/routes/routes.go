@@ -13,7 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// SetupRoutes configures all API routes
+// SetupRoutes configures non-auth API routes
+// Note: Auth routes are handled separately in main.go to properly use the enhanced auth service
 func SetupRoutes(
 	router *chi.Mux,
 	db *gorm.DB,
@@ -30,79 +31,30 @@ func SetupRoutes(
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Don't mount /api/v1 here since main.go already mounts it
-	// Just add the auth-specific routes that main.go expects
-}
-
-// Placeholder handlers - these would be implemented properly
-func handleRegister(authSvc *auth.Service, jwtSvc *jwt.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	// Version endpoint
+	router.Get("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Registration endpoint - coming soon"}`))
-	}
-}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"version":"1.0.0","status":"running"}`))
+	})
 
-func handleLogin(authSvc *auth.Service, jwtSvc *jwt.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Login endpoint - coming soon"}`))
-	}
-}
-
-func handleRefresh(jwtSvc *jwt.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Refresh endpoint - coming soon"}`))
-	}
-}
-
-func handleForgotPassword(authSvc *auth.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Forgot password endpoint - coming soon"}`))
-	}
-}
-
-func handleResetPassword(authSvc *auth.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Reset password endpoint - coming soon"}`))
-	}
-}
-
-func handleVerifyEmail(authSvc *auth.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Email verification endpoint - coming soon"}`))
-	}
-}
-
-func handleGetCurrentUser(authSvc *auth.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Get current user endpoint - coming soon"}`))
-	}
-}
-
-func handleUpdateCurrentUser(authSvc *auth.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Update current user endpoint - coming soon"}`))
-	}
-}
-
-func handleLogout(authSvc *auth.Service, jwtSvc *jwt.Service, log logger.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte(`{"message":"Logout endpoint - coming soon"}`))
-	}
+	// API v1 routes - only add non-auth routes here
+	// (Auth routes are handled in main.go where the enhanced auth service is available)
+	router.Route("/api/v1", func(r chi.Router) {
+		// Add other routes here, like team routes, node routes, etc.
+		// when those handlers are implemented
+		
+		// For now, just add a placeholder
+		r.Get("/status", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"api running","service":"api"}`))
+		})
+		
+		// Example of how to add team routes when handlers are ready:
+		// r.Route("/teams", func(r chi.Router) {
+		// 	r.Get("/", handleGetTeams)
+		// 	r.Get("/{id}", handleGetTeam)
+		// })
+	})
 }
