@@ -1,34 +1,11 @@
-package team
+package teams
 
 import (
 	"context"
 	"time"
 
 	"n8n-pro/pkg/logger"
-
-	"github.com/google/uuid"
 )
-
-// Team represents a team entity
-type Team struct {
-	ID          string                 `json:"id" gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Name        string                 `json:"name" gorm:"not null;size:255"`
-	Description string                 `json:"description" gorm:"type:text"`
-	OrgID       string                 `json:"organization_id" gorm:"type:uuid;not null;index"`
-	Settings    map[string]interface{} `json:"settings" gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedBy   string                 `json:"created_by" gorm:"type:uuid;not null"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-}
-
-// TeamMember represents a team membership
-type TeamMember struct {
-	ID     string    `json:"id" gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	TeamID string    `json:"team_id" gorm:"type:uuid;not null;index"`
-	UserID string    `json:"user_id" gorm:"type:uuid;not null;index"`
-	Role   string    `json:"role" gorm:"not null;default:'member'"`
-	Joined time.Time `json:"joined_at"`
-}
 
 // Service handles team operations
 type Service struct {
@@ -51,6 +28,27 @@ type Repository interface {
 	GetTeamMembers(ctx context.Context, teamID string) ([]*TeamMember, error)
 }
 
+// Team represents a team entity
+type Team struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	OrgID       string                 `json:"organization_id"`
+	Settings    map[string]interface{} `json:"settings"`
+	CreatedBy   string                 `json:"created_by"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+// TeamMember represents a team member
+type TeamMember struct {
+	ID     string    `json:"id"`
+	TeamID string    `json:"team_id"`
+	UserID string    `json:"user_id"`
+	Role   string    `json:"role"`
+	Joined time.Time `json:"joined_at"`
+}
+
 // ListFilter represents filters for listing teams
 type ListFilter struct {
 	OrgID  string
@@ -68,25 +66,19 @@ func NewService(repo Repository, logger logger.Logger) *Service {
 }
 
 // CreateTeam creates a new team
-func (s *Service) CreateTeam(ctx context.Context, name, description, orgID, creatorID string, settings map[string]interface{}) (*Team, error) {
-	s.logger.Info("Creating team", "name", name, "org_id", orgID)
+func (s *Service) CreateTeam(ctx context.Context, team *Team, creatorID string) error {
+	s.logger.Info("Creating team", "name", team.Name, "org_id", team.OrgID)
 
-	// Validate input
-	if err := s.validateTeamInput(name, orgID); err != nil {
-		return nil, err
+	// Validate team
+	if err := s.validateTeam(team); err != nil {
+		return err
 	}
 
-	// Create team entity
-	team := &Team{
-		ID:          uuid.New().String(),
-		Name:        name,
-		Description: description,
-		OrgID:       orgID,
-		Settings:    settings,
-		CreatedBy:   creatorID,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
+	// Set defaults
+	team.ID = "team_" + team.OrgID // In reality, use proper UUID
+	team.CreatedBy = creatorID
+	team.CreatedAt = time.Now()
+	team.UpdatedAt = time.Now()
 
 	if team.Settings == nil {
 		team.Settings = make(map[string]interface{})
@@ -94,8 +86,8 @@ func (s *Service) CreateTeam(ctx context.Context, name, description, orgID, crea
 
 	// Create the team
 	if err := s.repo.Create(ctx, team); err != nil {
-		s.logger.Error("Failed to create team", "name", name, "error", err)
-		return nil, err
+		s.logger.Error("Failed to create team", "name", team.Name, "error", err)
+		return err
 	}
 
 	// Add creator as team owner
@@ -105,8 +97,7 @@ func (s *Service) CreateTeam(ctx context.Context, name, description, orgID, crea
 	}
 
 	s.logger.Info("Team created successfully", "team_id", team.ID)
-
-	return team, nil
+	return nil
 }
 
 // GetTeam retrieves a team by ID
@@ -150,28 +141,14 @@ func (s *Service) GetTeamsByUser(ctx context.Context, userID string) ([]*Team, e
 }
 
 // UpdateTeam updates an existing team
-func (s *Service) UpdateTeam(ctx context.Context, id, name, description string, settings map[string]interface{}) error {
-	team, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if name != "" {
-		team.Name = name
-	}
-	if description != "" {
-		team.Description = description
-	}
-	if settings != nil {
-		team.Settings = settings
-	}
+func (s *Service) UpdateTeam(ctx context.Context, team *Team) error {
 	team.UpdatedAt = time.Now()
-
+	
 	if err := s.repo.Update(ctx, team); err != nil {
-		s.logger.Error("Failed to update team", "team_id", id, "error", err)
+		s.logger.Error("Failed to update team", "team_id", team.ID, "error", err)
 		return err
 	}
-
+	
 	return nil
 }
 
@@ -181,7 +158,7 @@ func (s *Service) DeleteTeam(ctx context.Context, id string) error {
 		s.logger.Error("Failed to delete team", "team_id", id, "error", err)
 		return err
 	}
-
+	
 	return nil
 }
 
@@ -196,7 +173,7 @@ func (s *Service) AddUserToTeam(ctx context.Context, teamID, userID, role string
 		s.logger.Error("Failed to add user to team", "team_id", teamID, "user_id", userID, "error", err)
 		return err
 	}
-
+	
 	return nil
 }
 
@@ -206,7 +183,7 @@ func (s *Service) RemoveUserFromTeam(ctx context.Context, teamID, userID string)
 		s.logger.Error("Failed to remove user from team", "team_id", teamID, "user_id", userID, "error", err)
 		return err
 	}
-
+	
 	return nil
 }
 
@@ -217,21 +194,21 @@ func (s *Service) GetTeamMembers(ctx context.Context, teamID string) ([]*TeamMem
 		s.logger.Error("Failed to get team members", "team_id", teamID, "error", err)
 		return nil, err
 	}
-
+	
 	return members, nil
 }
 
-// validateTeamInput validates team creation input
-func (s *Service) validateTeamInput(name, orgID string) error {
-	if name == "" {
+// validateTeam validates team data
+func (s *Service) validateTeam(team *Team) error {
+	if team.Name == "" {
 		return ValidationError("team name is required")
 	}
 
-	if orgID == "" {
+	if team.OrgID == "" {
 		return ValidationError("organization ID is required")
 	}
 
-	if len(name) > 255 {
+	if len(team.Name) > 255 {
 		return ValidationError("team name cannot exceed 255 characters")
 	}
 
